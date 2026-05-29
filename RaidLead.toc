@@ -1,0 +1,45 @@
+﻿## Interface: 20505
+## Title: RaidLead
+## Notes: Raid management: buff scanner, healer assignments, boss templates.
+## Author: goosefraba
+## Version: 1.1.0
+## SavedVariables: RaidLeadDB
+
+BuffData.lua
+Core\Utils.lua
+Core\DataStore.lua
+Core\Permissions.lua
+Core\Comm.lua
+Modules\BuffScan.lua
+Modules\Versions.lua
+Modules\Roles.lua
+Modules\Polls.lua
+Modules\BossTemplates.lua
+Modules\HealAssign.lua
+Modules\CooldownAssign.lua
+Modules\LootHistory.lua
+Modules\BossData\BossRegistry.lua
+Modules\BossData\Karazhan.lua
+Modules\BossData\GruulsLair.lua
+Modules\BossData\MagtheridonsLair.lua
+Modules\BossData\SerpentshrineCavern.lua
+Modules\BossData\TempestKeep.lua
+UI\Widgets.lua
+UI\MainFrame.lua
+UI\BuffScanFrame.lua
+UI\BossTemplateFrame.lua
+UI\BossTemplateWidgets\NetherspitePortals.lua
+UI\BossTemplateWidgets\MaulgarAssignments.lua
+UI\BossTemplateWidgets\MagtheridonAssignments.lua
+UI\BossTemplateWidgets\KarathressAssignments.lua
+UI\BossTemplateWidgets\VashjAssignments.lua
+UI\BossTemplateWidgets\AlarAssignments.lua
+UI\BossTemplateWidgets\SolarianAssignments.lua
+UI\BossTemplateWidgets\KaelthasAssignments.lua
+UI\HealAssignFrame.lua
+UI\ProfileFrame.lua
+UI\RoleCheckDialog.lua
+UI\PollDialog.lua
+UI\LootHistoryFrame.lua
+RaidLead.lua
+
