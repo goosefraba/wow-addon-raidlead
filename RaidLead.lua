@@ -268,11 +268,11 @@ loader:SetScript("OnEvent", function(self, event, ...)
         if ns.UpdateRoleCheckButton then ns.UpdateRoleCheckButton() end
         if ns.UpdateQuickPollButton then ns.UpdateQuickPollButton() end
 
-        -- Refresh solo message state if panel is open
+        -- Refresh solo message state if panel is open (tab-aware: the
+        -- placeholder only shows on the buff-scan tabs).
         local f = ns.mainFrame
-        if f:IsShown() then
-            local gt = ns.GetGroupType()
-            ns.soloMsg:SetShown(gt == "solo" and #ns.BuffScan.scanSorted == 0)
+        if f:IsShown() and ns.UpdateSoloMsg then
+            ns.UpdateSoloMsg()
         end
     end
 end)

@@ -406,6 +406,22 @@ local function RebuildTabButtons()
     end
 end
 
+-- The buff-scan "join a group / load mock" placeholder only makes sense on
+-- the Grid/Missing tabs. Show it (and hide the empty buff content beneath)
+-- only there; on Boss/Roles/Polls/Profile it must stay hidden.
+local function UpdateSoloMsg()
+    if not soloMsg then return end
+    local isBuffTab = (activeTab == "Grid" or activeTab == "Missing")
+    local isSolo = isBuffTab
+        and ns.GetGroupType() == "solo"
+        and #ns.BuffScan.scanSorted == 0
+    soloMsg:SetShown(isSolo)
+    if activeTab and tabContents[activeTab] then
+        tabContents[activeTab]:SetShown(not isSolo)
+    end
+end
+ns.UpdateSoloMsg = UpdateSoloMsg
+
 function ns.ShowTab(name)
     -- Rebuild buttons if not yet created
     if not next(tabButtons) then RebuildTabButtons() end
@@ -440,6 +456,8 @@ function ns.ShowTab(name)
             tab.refresh()
         end
     end
+
+    UpdateSoloMsg()
 end
 
 ns.activeTab = function() return activeTab end
@@ -687,18 +705,9 @@ end
 -- RefreshUI (master refresh — called after every scan)
 ----------------------------------------------------------------------
 function ns.RefreshUI()
-    local gt = ns.GetGroupType()
-    local isSolo = (gt == "solo") and #ns.BuffScan.scanSorted == 0
-
-    soloMsg:SetShown(isSolo)
-
-    -- Toggle tab content
-    for _, cf in pairs(tabContents) do cf:SetShown(not isSolo) end
-    bottomBar:SetShown(not isSolo)
-
-    if not isSolo then
-        ns.ShowTab(activeTab or registeredTabs[1] and registeredTabs[1].name or "Grid")
-    end
+    -- ShowTab owns content visibility, the bottom bar, and the solo
+    -- placeholder (which it only shows on the buff-scan tabs).
+    ns.ShowTab(activeTab or (registeredTabs[1] and registeredTabs[1].name) or "Grid")
 
     -- Status
     if ns.BuffScan.scanTime then

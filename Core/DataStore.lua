@@ -68,6 +68,26 @@ function ns.InitDB()
     -- Boss templates
     if not ns.db.bossTemplates then ns.db.bossTemplates = {} end
 
+    -- Custom poll questions (lead-managed). Each entry:
+    --   { question = "...", options = { "A", "B", ... }, multi = false }
+    if not ns.db.customPolls then ns.db.customPolls = {} end
+
+    -- Seed the built-in presets into the editable list exactly once. After
+    -- this they're ordinary entries the lead can edit or delete; the
+    -- pollsSeeded flag stops us re-adding ones they've removed.
+    if not ns.db.pollsSeeded then
+        ns.db.pollsSeeded = true
+        for _, p in ipairs((ns.Polls and ns.Polls.PRESETS) or {}) do
+            local opts = {}
+            for i, o in ipairs(p.options) do opts[i] = o end
+            ns.db.customPolls[#ns.db.customPolls + 1] = {
+                question = p.question,
+                options  = opts,
+                multi    = false,
+            }
+        end
+    end
+
     -- Always start locked on each reload as a safety measure -
     -- prevents accidental edits during raid prep.
     ns.db.settings.bossLocked = true

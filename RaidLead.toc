@@ -2,7 +2,7 @@
 ## Title: RaidLead
 ## Notes: Raid management: buff scanner, healer assignments, boss templates.
 ## Author: goosefraba
-## Version: 1.1.0
+## Version: 1.2.3
 ## SavedVariables: RaidLeadDB
 
 BuffData.lua
@@ -40,6 +40,7 @@ UI\HealAssignFrame.lua
 UI\ProfileFrame.lua
 UI\RoleCheckDialog.lua
 UI\PollDialog.lua
+UI\PollManager.lua
 UI\LootHistoryFrame.lua
 RaidLead.lua
 

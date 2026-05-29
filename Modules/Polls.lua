@@ -5,12 +5,14 @@
 -- live for the initiator.
 --
 -- Comm protocol (3 message types):
---   POLL_START <pollId> <question> <opt1>|<opt2>|...   broadcast from initiator
---   POLL_VOTE  <pollId> <choiceIdx>                    broadcast from voter
---   POLL_END   <pollId>                                broadcast from initiator
+--   POLL_START <pollId> <mode> <question> <opt1>|<opt2>|...  from initiator
+--   POLL_VOTE  <pollId> <idx[,idx,...]>                      from voter
+--   POLL_END   <pollId>                                      from initiator
 --
--- Choice indices are 1-based; option labels arrive separated by "|"
--- because the Comm SEP (tab) is already used as the field separator.
+-- <mode> is "single" (pick one) or "multi" (pick several).
+-- Choice indices are 1-based; multi votes are comma-separated. Option
+-- labels arrive separated by "|" because the Comm SEP (tab) is already
+-- used as the field separator.
 ----------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
@@ -57,15 +59,37 @@ local function UnpackOptions(str)
     return out
 end
 
+-- Tally votes for a poll. votes[name] may be a single index (legacy /
+-- single-mode) or a table of indices (multi-mode); handle both.
+-- Returns counts[optIdx] -> n, and voterTotal (distinct voters).
+local function TallyVotes(poll)
+    local counts = {}
+    for i = 1, #poll.options do counts[i] = 0 end
+    local voterTotal = 0
+    for _, choice in pairs(poll.votes) do
+        voterTotal = voterTotal + 1
+        if type(choice) == "table" then
+            for _, idx in ipairs(choice) do
+                if counts[idx] then counts[idx] = counts[idx] + 1 end
+            end
+        elseif counts[choice] then
+            counts[choice] = counts[choice] + 1
+        end
+    end
+    return counts, voterTotal
+end
+Polls.TallyVotes = TallyVotes
+
 ----------------------------------------------------------------------
 -- Sender side: initiate a poll
 ----------------------------------------------------------------------
-function Polls.SendPoll(question, options)
+function Polls.SendPoll(question, options, multi)
     if not ns.Comm then return end
     if not question or question == "" or not options or #options < 2 then
         ns.P("|cFFFF8800Poll needs a question and at least 2 options.|r")
         return
     end
+    multi = multi and true or false
 
     -- Permission: leader/assist only (same gate as broadcast permissions)
     if ns.CanBroadcast and not ns.CanBroadcast() then
@@ -87,12 +111,14 @@ function Polls.SendPoll(question, options)
         id        = pollId,
         question  = question,
         options   = options,
-        votes     = {},  -- voterName -> choiceIdx
+        multi     = multi,
+        votes     = {},  -- voterName -> choiceIdx | { idx, ... }
         startedAt = now,
     }
 
     -- Broadcast to peers (no-op when solo)
-    ns.Comm.Send("POLL_START", pollId, question, PackOptions(options))
+    ns.Comm.Send("POLL_START", pollId, multi and "multi" or "single",
+        question, PackOptions(options))
 
     -- Initiator also opens their results window AND a local vote popup
     -- so they can vote too (mirrors role-check behavior).
@@ -100,7 +126,7 @@ function Polls.SendPoll(question, options)
         ns.ShowPollResultsWindow(Polls.activePoll)
     end
     if ns.ShowPollVoteDialog then
-        ns.ShowPollVoteDialog(pollId, question, options, UnitName("player"))
+        ns.ShowPollVoteDialog(pollId, question, options, UnitName("player"), multi)
     end
 
     local gt = ns.GetGroupType and ns.GetGroupType() or "solo"
@@ -118,12 +144,26 @@ function Polls.SendPoll(question, options)
     end)
 end
 
-function Polls.RecordVote(pollId, voterName, choiceIdx)
+-- choices: a single 1-based index, or a table of them (multi-select).
+function Polls.RecordVote(pollId, voterName, choices)
     if not Polls.activePoll or Polls.activePoll.id ~= pollId then return end
     if not voterName or voterName == "" then return end
-    if not choiceIdx or choiceIdx < 1 or choiceIdx > #Polls.activePoll.options then return end
 
-    Polls.activePoll.votes[voterName] = choiceIdx
+    local nOpts = #Polls.activePoll.options
+    if type(choices) ~= "table" then choices = { choices } end
+
+    -- Keep only valid, de-duplicated indices.
+    local seen, clean = {}, {}
+    for _, idx in ipairs(choices) do
+        idx = tonumber(idx)
+        if idx and idx >= 1 and idx <= nOpts and not seen[idx] then
+            seen[idx] = true
+            clean[#clean + 1] = idx
+        end
+    end
+    if #clean == 0 then return end
+
+    Polls.activePoll.votes[voterName] = clean
 
     if ns.RefreshPollResultsWindow then
         ns.RefreshPollResultsWindow(Polls.activePoll)
@@ -146,10 +186,48 @@ end
 ----------------------------------------------------------------------
 -- Vote side: respond to a poll
 ----------------------------------------------------------------------
-function Polls.CastVote(pollId, choiceIdx)
+-- choices: a single 1-based index, or a table of them (multi-select).
+function Polls.CastVote(pollId, choices)
     if not ns.Comm then return end
-    if not pollId or not choiceIdx then return end
-    ns.Comm.Send("POLL_VOTE", pollId, tostring(choiceIdx))
+    if not pollId or not choices then return end
+    if type(choices) ~= "table" then choices = { choices } end
+    if #choices == 0 then return end
+    ns.Comm.Send("POLL_VOTE", pollId, table.concat(choices, ","))
+end
+
+----------------------------------------------------------------------
+-- Announce the current tally to raid/party chat (initiator only)
+----------------------------------------------------------------------
+function Polls.AnnounceResults()
+    local poll = Polls.activePoll
+    if not poll then
+        ns.P("|cFFFF8800No active poll to announce.|r")
+        return
+    end
+
+    local channel = ns.BuffScan and ns.BuffScan.GetAnnounceChannel
+        and ns.BuffScan.GetAnnounceChannel()
+    if not channel then
+        ns.P("You are not in a group or raid.")
+        return
+    end
+
+    -- SendChatMessage rejects the '|' escape char; strip it from labels.
+    local function clean(s) return (tostring(s or ""):gsub("|", "")) end
+
+    local counts, voterTotal = TallyVotes(poll)
+
+    SendChatMessage("[Poll] " .. clean(poll.question), channel)
+    for i, opt in ipairs(poll.options) do
+        local pct = (voterTotal > 0)
+            and math.floor(counts[i] / voterTotal * 100 + 0.5) or 0
+        SendChatMessage(
+            string.format("  %s: %d (%d%%)", clean(opt), counts[i], pct),
+            channel)
+    end
+    SendChatMessage(
+        string.format("  (%d voter%s)", voterTotal, voterTotal == 1 and "" or "s"),
+        channel)
 end
 
 ----------------------------------------------------------------------
@@ -158,23 +236,28 @@ end
 if ns.Comm then
     ns.Comm.RegisterHandler("POLL_START", function(parts, sender, channel)
         local pollId   = parts[2]
-        local question = parts[3]
-        local optsStr  = parts[4]
+        local mode     = parts[3]
+        local question = parts[4]
+        local optsStr  = parts[5]
         if not (pollId and question and optsStr) then return end
 
         local options = UnpackOptions(optsStr)
         if #options < 2 then return end
 
         if ns.ShowPollVoteDialog then
-            ns.ShowPollVoteDialog(pollId, question, options, sender)
+            ns.ShowPollVoteDialog(pollId, question, options, sender, mode == "multi")
         end
     end)
 
     ns.Comm.RegisterHandler("POLL_VOTE", function(parts, sender, channel)
-        local pollId    = parts[2]
-        local choiceIdx = tonumber(parts[3])
-        if not (pollId and choiceIdx) then return end
-        Polls.RecordVote(pollId, sender, choiceIdx)
+        local pollId  = parts[2]
+        if not pollId then return end
+        local choices = {}
+        for n in (parts[3] or ""):gmatch("%d+") do
+            choices[#choices + 1] = tonumber(n)
+        end
+        if #choices == 0 then return end
+        Polls.RecordVote(pollId, sender, choices)
     end)
 
     ns.Comm.RegisterHandler("POLL_END", function(parts, sender, channel)
