@@ -466,7 +466,7 @@ function ns.CreateRaidIconPicker(parent, size, onSelect)
     btn:SetScript("OnClick", function(self)
         -- Honor lock state if this picker is part of a boss config
         if btn.respectLock and ns.BossTemplates and ns.BossTemplates.IsLocked() then
-            ns.P("|cFFFF8800Locked.|r Click the lock icon (top-right) to enable editing.")
+            ns.LockedNotice()
             return
         end
         if popup:IsShown() then
@@ -779,7 +779,7 @@ function ns.CreatePlayerDropdown(parent, width, onSelect)
     btn:SetScript("OnClick", function(self)
         -- Honor lock state if this dropdown is part of a boss config
         if btn.respectLock and ns.BossTemplates and ns.BossTemplates.IsLocked() then
-            ns.P("|cFFFF8800Locked.|r Click the lock icon (top-right) to enable editing.")
+            ns.LockedNotice()
             return
         end
 

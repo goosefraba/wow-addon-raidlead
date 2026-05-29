@@ -50,29 +50,14 @@ topBar:SetHeight(24)
 topBar:SetPoint("TOPLEFT", histContent, "TOPLEFT", 0, 0)
 topBar:SetPoint("TOPRIGHT", histContent, "TOPRIGHT", 0, 0)
 
--- "Back to Tabs" - always visible in history mode; restores the main
--- tabbed interface. Distinct from the per-run "< Back" below.
-local exitHistoryBtn = ns.MakeSmallButton(topBar, "< Overview", 90, 22)
-exitHistoryBtn:SetPoint("LEFT", topBar, "LEFT", 0, 0)
-exitHistoryBtn:SetScript("OnClick", function()
-    if ns.SetHistoryMode then ns.SetHistoryMode(false) end
-end)
-exitHistoryBtn:HookScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine("Back to Tabs", 1, 0.82, 0.1)
-    GameTooltip:AddLine("Return to the main Grid / Boss / Roles / Profile tabs.",
-        0.8, 0.8, 0.8, true)
-    GameTooltip:Show()
-end)
-exitHistoryBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
-
+-- Per-run "< Back" button (returns from the detail view to the run list).
 local backBtn = ns.MakeSmallButton(topBar, "< Back", 90, 22)
-backBtn:SetPoint("LEFT", exitHistoryBtn, "RIGHT", 8, 0)
+backBtn:SetPoint("LEFT", topBar, "LEFT", 0, 0)
 backBtn:Hide()
 
 local viewRunsBtn = ns.MakePill(topBar, "Raid Runs")
 viewRunsBtn:SetWidth(100)
-viewRunsBtn:SetPoint("LEFT", exitHistoryBtn, "RIGHT", 8, 0)
+viewRunsBtn:SetPoint("LEFT", topBar, "LEFT", 0, 0)
 
 local viewPlayersBtn = ns.MakePill(topBar, "Per-Player")
 viewPlayersBtn:SetWidth(110)
@@ -773,9 +758,9 @@ end)
 clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 ----------------------------------------------------------------------
--- History is NOT a regular tab — it's accessed via a dedicated icon in
--- the top-right icon bar (see MainFrame.lua) and shown as a "mode" that
--- hides the normal tab content while active.
+-- Register as a regular tab. The top-right history icon (MainFrame.lua)
+-- is just a shortcut that selects this tab.
 ----------------------------------------------------------------------
-ns.lootHistContent = histContent  -- exposed for MainFrame to toggle
+ns.lootHistContent = histContent  -- still exposed for the icon shortcut
 ns.RefreshLootHistory = RefreshHistory
+ns.RegisterTab("History", 29, histContent, RefreshHistory)

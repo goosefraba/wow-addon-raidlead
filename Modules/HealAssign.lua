@@ -250,7 +250,7 @@ end
 ----------------------------------------------------------------------
 function HealAssign.AutoAssign()
     if HealAssign.IsLocked() then
-        ns.P("|cFFFF8800Locked.|r Click the lock icon (top-right) to enable editing.")
+        ns.LockedNotice()
         return
     end
 

@@ -18,13 +18,14 @@ ns.BossRegistry:Register("magtheridon", {
     },
     -- 5 cube slots, keyed by raid icon. Mark Hellfire Channelers with these
     -- icons in phase 1; the clicker for [icon] takes the cube where that
-    -- channeler stood in phase 2.
+    -- channeler stood in phase 2. All 5 share the mob name, so Auto-Mark
+    -- assigns icons to the first 5 channelers it finds in range.
     cubes = {
-        { key = "skull",    iconIdx = 8, label = "Skull" },
-        { key = "cross",    iconIdx = 7, label = "Cross" },
-        { key = "square",   iconIdx = 6, label = "Square" },
-        { key = "moon",     iconIdx = 5, label = "Moon" },
-        { key = "triangle", iconIdx = 4, label = "Triangle" },
+        { key = "skull",    iconIdx = 8, label = "Skull",    mob = "Hellfire Channeler" },
+        { key = "cross",    iconIdx = 7, label = "Cross",    mob = "Hellfire Channeler" },
+        { key = "square",   iconIdx = 6, label = "Square",   mob = "Hellfire Channeler" },
+        { key = "moon",     iconIdx = 5, label = "Moon",     mob = "Hellfire Channeler" },
+        { key = "triangle", iconIdx = 4, label = "Triangle", mob = "Hellfire Channeler" },
     },
     notes = "Mark Hellfire Channelers in phase 1. Clicker for each icon takes the cube where that channeler stood.",
 })

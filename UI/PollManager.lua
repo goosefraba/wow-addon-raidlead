@@ -1,8 +1,13 @@
 ----------------------------------------------------------------------
 -- RaidLead — UI/PollManager.lua
--- "Polls" tab: lead manages a library of custom poll questions, each
--- with its own options and single/multi-select mode. The launcher
--- (UI/PollDialog.lua) offers these alongside the built-in presets.
+-- "Polls" tab. Two sub-views via a pill toggle:
+--   Questions — lead-managed library of custom poll questions (each with
+--               its own options and single/multi-select mode). Launched
+--               from the Quick Poll launcher alongside the built-in presets.
+--   History   — past poll results, kept locally for whoever ran the poll.
+--               Not shared; can be re-announced to raid/party chat.
+-- Editing the library and clearing history require edit permission
+-- (raid leader / assistant); others see read-only behavior.
 ----------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
@@ -17,17 +22,25 @@ pollContent:SetPoint("TOPLEFT",     f, "TOPLEFT",      10, -68)
 pollContent:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -10,  10)
 pollContent:Hide()
 
-local hint = pollContent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-hint:SetPoint("TOPLEFT", pollContent, "TOPLEFT", 4, -2)
-hint:SetJustifyH("LEFT")
-hint:SetTextColor(0.6, 0.6, 0.6)
-hint:SetText("Custom questions you can broadcast from the Quick Poll launcher.")
+-- Forward declarations
+local RefreshList, RefreshHistory, OpenEditor, SetView
+local viewMode = "questions"
 
-local newBtn = ns.MakeSmallButton(pollContent, "New Question", 110, 22)
-newBtn:SetPoint("TOPLEFT", pollContent, "TOPLEFT", 4, -24)
+----------------------------------------------------------------------
+-- Top bar: view pills (left) + Quick Poll (right)
+----------------------------------------------------------------------
+local questionsPill = ns.MakePill(pollContent, "Questions")
+questionsPill:SetWidth(90)
+questionsPill:SetPoint("TOPLEFT", pollContent, "TOPLEFT", 4, -2)
+questionsPill:SetScript("OnClick", function() SetView("questions") end)
+
+local historyPill = ns.MakePill(pollContent, "History")
+historyPill:SetWidth(80)
+historyPill:SetPoint("LEFT", questionsPill, "RIGHT", 6, 0)
+historyPill:SetScript("OnClick", function() SetView("history") end)
 
 local sendBtn = ns.MakeSmallButton(pollContent, "Quick Poll", 100, 22)
-sendBtn:SetPoint("TOPRIGHT", pollContent, "TOPRIGHT", -4, -24)
+sendBtn:SetPoint("TOPRIGHT", pollContent, "TOPRIGHT", -4, -2)
 sendBtn:SetScript("OnClick", function()
     if ns.CanBroadcast and not ns.CanBroadcast() then
         ns.P("|cFFFF8800Only the raid leader or an assistant can start a poll.|r")
@@ -36,32 +49,47 @@ sendBtn:SetScript("OnClick", function()
     if ns.ShowPollLauncher then ns.ShowPollLauncher() end
 end)
 
-local listHeader = ns.MakeSectionHeader(pollContent, "Your Questions")
-listHeader:SetPoint("TOPLEFT",  pollContent, "TOPLEFT",  0, -52)
-listHeader:SetPoint("RIGHT",    pollContent, "RIGHT",   -4,  0)
+----------------------------------------------------------------------
+-- Questions view
+----------------------------------------------------------------------
+local questionsView = CreateFrame("Frame", nil, pollContent)
+questionsView:SetPoint("TOPLEFT",     pollContent, "TOPLEFT",      0, -28)
+questionsView:SetPoint("BOTTOMRIGHT", pollContent, "BOTTOMRIGHT",  0,   0)
 
-local emptyMsg = pollContent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-emptyMsg:SetPoint("TOPLEFT", pollContent, "TOPLEFT", 8, -82)
+local hint = questionsView:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+hint:SetPoint("TOPLEFT", questionsView, "TOPLEFT", 4, -2)
+hint:SetJustifyH("LEFT")
+hint:SetTextColor(0.6, 0.6, 0.6)
+hint:SetText("Custom questions you can broadcast from the Quick Poll launcher.")
+
+local newBtn = ns.MakeSmallButton(questionsView, "New Question", 110, 22)
+newBtn:SetPoint("TOPLEFT", questionsView, "TOPLEFT", 4, -20)
+newBtn:SetScript("OnClick", function()
+    if ns.CanEdit and not ns.CanEdit() then ns.LockedNotice(); return end
+    OpenEditor(nil)
+end)
+
+local listHeader = ns.MakeSectionHeader(questionsView, "Your Questions")
+listHeader:SetPoint("TOPLEFT",  questionsView, "TOPLEFT",  0, -46)
+listHeader:SetPoint("RIGHT",    questionsView, "RIGHT",   -4,  0)
+
+local emptyMsg = questionsView:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+emptyMsg:SetPoint("TOPLEFT", questionsView, "TOPLEFT", 8, -74)
 emptyMsg:SetTextColor(0.5, 0.5, 0.5)
 emptyMsg:SetText("No custom questions yet. Click |cFFFFCC00New Question|r to add one.")
 emptyMsg:Hide()
 
-----------------------------------------------------------------------
--- Question list (simple pooled rows)
-----------------------------------------------------------------------
 local listRows = {}
-local RefreshList  -- forward decl
-local OpenEditor   -- forward decl
-
 local ROW_H = 38
+
 local function GetListRow(i)
     local row = listRows[i]
     if row then return row end
 
-    row = CreateFrame("Frame", nil, pollContent)
+    row = CreateFrame("Frame", nil, questionsView)
     row:SetSize(10, ROW_H)
-    row:SetPoint("TOPLEFT",  pollContent, "TOPLEFT",  4, -80 - (i - 1) * (ROW_H + 4))
-    row:SetPoint("RIGHT",    pollContent, "RIGHT",   -4, 0)
+    row:SetPoint("TOPLEFT",  questionsView, "TOPLEFT",  4, -72 - (i - 1) * (ROW_H + 4))
+    row:SetPoint("RIGHT",    questionsView, "RIGHT",   -4, 0)
 
     row.bg = row:CreateTexture(nil, "BACKGROUND")
     row.bg:SetAllPoints()
@@ -91,7 +119,10 @@ local function GetListRow(i)
 end
 
 RefreshList = function()
-    local polls = (ns.db and ns.db.customPolls) or {}
+    local polls   = (ns.db and ns.db.customPolls) or {}
+    local canEdit = (not ns.CanEdit) or ns.CanEdit()
+
+    newBtn:SetAlpha(canEdit and 1 or 0.4)
 
     for _, row in ipairs(listRows) do row:Hide() end
     emptyMsg:SetShown(#polls == 0)
@@ -103,9 +134,16 @@ RefreshList = function()
         row.detail:SetText(table.concat(poll.options or {}, " / ")
             .. "  |cFF6699CC\194\183 " .. mode .. "|r")
 
+        row.editBtn:SetAlpha(canEdit and 1 or 0.4)
+        row.delBtn:SetAlpha(canEdit and 1 or 0.4)
+
         local idx = i
-        row.editBtn:SetScript("OnClick", function() OpenEditor(idx) end)
+        row.editBtn:SetScript("OnClick", function()
+            if ns.CanEdit and not ns.CanEdit() then ns.LockedNotice(); return end
+            OpenEditor(idx)
+        end)
         row.delBtn:SetScript("OnClick", function()
+            if ns.CanEdit and not ns.CanEdit() then ns.LockedNotice(); return end
             table.remove(ns.db.customPolls, idx)
             RefreshList()
         end)
@@ -113,10 +151,141 @@ RefreshList = function()
     end
 end
 
-newBtn:SetScript("OnClick", function() OpenEditor(nil) end)
+----------------------------------------------------------------------
+-- History view
+----------------------------------------------------------------------
+local historyView = CreateFrame("Frame", nil, pollContent)
+historyView:SetPoint("TOPLEFT",     pollContent, "TOPLEFT",      0, -28)
+historyView:SetPoint("BOTTOMRIGHT", pollContent, "BOTTOMRIGHT",  0,   0)
+historyView:Hide()
+
+local histHint = historyView:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+histHint:SetPoint("TOPLEFT", historyView, "TOPLEFT", 4, -2)
+histHint:SetJustifyH("LEFT")
+histHint:SetTextColor(0.6, 0.6, 0.6)
+histHint:SetText("Past poll results (only you can see these). Re-announce posts the tally to chat.")
+
+local clearHistBtn = ns.MakeSmallButton(historyView, "Clear History", 110, 22)
+clearHistBtn:SetPoint("TOPRIGHT", historyView, "TOPRIGHT", -4, -2)
+clearHistBtn:SetScript("OnClick", function(self)
+    if ns.CanEdit and not ns.CanEdit() then ns.LockedNotice(); return end
+    if self.armed then
+        self.armed = nil
+        ns.db.pollHistory = {}
+        self:SetText("Clear History")
+        RefreshHistory()
+    else
+        self.armed = true
+        self:SetText("|cFFFF6666Confirm?|r")
+        C_Timer.After(3, function()
+            if self.armed then self.armed = nil; self:SetText("Clear History") end
+        end)
+    end
+end)
+
+local histHeader = ns.MakeSectionHeader(historyView, "Past Polls")
+histHeader:SetPoint("TOPLEFT", historyView, "TOPLEFT", 0, -28)
+histHeader:SetPoint("RIGHT",   historyView, "RIGHT",  -4,  0)
+
+local histEmpty = historyView:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+histEmpty:SetPoint("TOPLEFT", historyView, "TOPLEFT", 8, -56)
+histEmpty:SetTextColor(0.5, 0.5, 0.5)
+histEmpty:SetText("No polls run yet. Results show up here after a poll ends.")
+histEmpty:Hide()
+
+local histRows = {}
+local HROW_H = 40
+
+local function FormatPollDate(ts)
+    if not ts or ts == 0 then return "?" end
+    return date("%Y-%m-%d %H:%M", ts)
+end
+
+-- Compact "Yes 5 / No 3" summary from a stored entry.
+local function StoredSummary(entry)
+    local parts = {}
+    for i, opt in ipairs(entry.options or {}) do
+        local c = (entry.counts and entry.counts[i]) or 0
+        parts[#parts + 1] = opt .. " " .. c
+    end
+    return table.concat(parts, " / ")
+end
+
+local function GetHistRow(i)
+    local row = histRows[i]
+    if row then return row end
+
+    row = CreateFrame("Frame", nil, historyView)
+    row:SetSize(10, HROW_H)
+    row:SetPoint("TOPLEFT", historyView, "TOPLEFT", 4, -54 - (i - 1) * (HROW_H + 4))
+    row:SetPoint("RIGHT",   historyView, "RIGHT",  -4, 0)
+
+    row.bg = row:CreateTexture(nil, "BACKGROUND")
+    row.bg:SetAllPoints()
+    row.bg:SetColorTexture(0.10, 0.10, 0.13, 0.6)
+
+    row.reBtn = ns.MakeSmallButton(row, "Announce", 90, 22)
+    row.reBtn:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+
+    row.question = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    row.question:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -4)
+    row.question:SetPoint("RIGHT",   row.reBtn, "LEFT", -8, 0)
+    row.question:SetJustifyH("LEFT")
+    row.question:SetWordWrap(false)
+
+    row.detail = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.detail:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 8, 5)
+    row.detail:SetPoint("RIGHT",      row.reBtn, "LEFT", -8, 0)
+    row.detail:SetJustifyH("LEFT")
+    row.detail:SetWordWrap(false)
+    row.detail:SetTextColor(0.6, 0.6, 0.6)
+
+    histRows[i] = row
+    return row
+end
+
+RefreshHistory = function()
+    local hist    = (ns.db and ns.db.pollHistory) or {}
+    local canEdit = (not ns.CanEdit) or ns.CanEdit()
+
+    clearHistBtn:SetAlpha(canEdit and 1 or 0.4)
+    clearHistBtn:SetShown(#hist > 0)
+
+    for _, row in ipairs(histRows) do row:Hide() end
+    histEmpty:SetShown(#hist == 0)
+
+    for i, entry in ipairs(hist) do
+        local row = GetHistRow(i)
+        row.question:SetText(entry.question or "(untitled)")
+        row.detail:SetText("|cFF888888" .. FormatPollDate(entry.endedAt) .. "|r  "
+            .. StoredSummary(entry)
+            .. "  |cFF6699CC\194\183 " .. (entry.voterTotal or 0) .. " voters|r")
+
+        local e = entry
+        local canBroadcast = (not ns.CanBroadcast) or ns.CanBroadcast()
+        row.reBtn:SetAlpha(canBroadcast and 1 or 0.4)
+        row.reBtn:SetScript("OnClick", function()
+            ns.Polls.AnnounceStored(e)
+        end)
+        row:Show()
+    end
+end
 
 ----------------------------------------------------------------------
--- Editor popup
+-- View toggle
+----------------------------------------------------------------------
+SetView = function(mode)
+    viewMode = mode
+    local showQuestions = (mode ~= "history")
+    questionsView:SetShown(showQuestions)
+    historyView:SetShown(not showQuestions)
+    if questionsPill.SetActive then questionsPill:SetActive(showQuestions) end
+    if historyPill.SetActive   then historyPill:SetActive(not showQuestions) end
+    if showQuestions then RefreshList() else RefreshHistory() end
+end
+
+----------------------------------------------------------------------
+-- Editor popup (Questions view)
 ----------------------------------------------------------------------
 local editor
 
@@ -213,6 +382,7 @@ local function BuildEditor()
     local saveBtn = ns.MakeSmallButton(editor, "Save", 90, 24)
     saveBtn:SetPoint("BOTTOMRIGHT", editor, "BOTTOMRIGHT", -16, 14)
     saveBtn:SetScript("OnClick", function()
+        if ns.CanEdit and not ns.CanEdit() then ns.LockedNotice(); editor:Hide(); return end
         local question = (editor.questionInput:GetText() or ""):trim()
         if question == "" then
             ns.P("|cFFFF8800Enter a question first.|r")
@@ -261,6 +431,18 @@ OpenEditor = function(index)
 end
 
 ----------------------------------------------------------------------
+-- Tab refresh: refresh the active view (also exposed for permission and
+-- poll-end updates from elsewhere).
+----------------------------------------------------------------------
+local function RefreshPollManager()
+    if viewMode == "history" then RefreshHistory() else RefreshList() end
+end
+ns.RefreshPollManager = RefreshPollManager
+
+-- Initial state
+SetView("questions")
+
+----------------------------------------------------------------------
 -- Register the tab (between Roles and Profile)
 ----------------------------------------------------------------------
-ns.RegisterTab("Polls", 28, pollContent, RefreshList)
+ns.RegisterTab("Polls", 28, pollContent, RefreshPollManager)

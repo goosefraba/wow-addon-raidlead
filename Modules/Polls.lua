@@ -170,6 +170,33 @@ function Polls.RecordVote(pollId, voterName, choices)
     end
 end
 
+local POLL_HISTORY_MAX = 25
+
+-- Snapshot a finished poll's final tally into local history (newest first).
+-- Stored as plain counts so it can be re-announced without live vote state.
+local function SaveToHistory(poll)
+    if not (ns.db and poll) then return end
+    ns.db.pollHistory = ns.db.pollHistory or {}
+
+    local counts, voterTotal = TallyVotes(poll)
+    local opts = {}
+    for i, o in ipairs(poll.options or {}) do opts[i] = o end
+    local savedCounts = {}
+    for i = 1, #opts do savedCounts[i] = counts[i] or 0 end
+
+    table.insert(ns.db.pollHistory, 1, {
+        question   = poll.question,
+        options    = opts,
+        multi      = poll.multi and true or false,
+        counts     = savedCounts,
+        voterTotal = voterTotal,
+        endedAt    = time(),
+    })
+    while #ns.db.pollHistory > POLL_HISTORY_MAX do
+        table.remove(ns.db.pollHistory)
+    end
+end
+
 function Polls.EndPoll(pollId, reason)
     if not Polls.activePoll or Polls.activePoll.id ~= pollId then return end
 
@@ -178,9 +205,9 @@ function Polls.EndPoll(pollId, reason)
     end
     if ns.MarkPollEnded then ns.MarkPollEnded(Polls.activePoll, reason) end
 
-    -- Keep the results window open so the lead can read final tally;
-    -- they close it manually.
     Polls.activePoll.endedAt = GetTime()
+    SaveToHistory(Polls.activePoll)
+    if ns.RefreshPollManager then ns.RefreshPollManager() end
 end
 
 ----------------------------------------------------------------------
@@ -224,6 +251,40 @@ function Polls.AnnounceResults()
         SendChatMessage(
             string.format("  %s: %d (%d%%)", clean(opt), counts[i], pct),
             channel)
+    end
+    SendChatMessage(
+        string.format("  (%d voter%s)", voterTotal, voterTotal == 1 and "" or "s"),
+        channel)
+end
+
+----------------------------------------------------------------------
+-- Re-announce a stored (past) poll result to raid/party chat.
+-- entry: { question, options = {...}, counts = {...}, voterTotal }
+----------------------------------------------------------------------
+function Polls.AnnounceStored(entry)
+    if not entry then return end
+
+    -- Re-announcing is a broadcast; gate to leader / assistant.
+    if ns.CanBroadcast and not ns.CanBroadcast() then
+        ns.P("|cFFFF8800Only the raid leader or an assistant can announce poll results.|r")
+        return
+    end
+
+    local channel = ns.BuffScan and ns.BuffScan.GetAnnounceChannel
+        and ns.BuffScan.GetAnnounceChannel()
+    if not channel then
+        ns.P("You are not in a group or raid.")
+        return
+    end
+
+    local function clean(s) return (tostring(s or ""):gsub("|", "")) end
+    local voterTotal = entry.voterTotal or 0
+
+    SendChatMessage("[Poll] " .. clean(entry.question), channel)
+    for i, opt in ipairs(entry.options or {}) do
+        local c = (entry.counts and entry.counts[i]) or 0
+        local pct = (voterTotal > 0) and math.floor(c / voterTotal * 100 + 0.5) or 0
+        SendChatMessage(string.format("  %s: %d (%d%%)", clean(opt), c, pct), channel)
     end
     SendChatMessage(
         string.format("  (%d voter%s)", voterTotal, voterTotal == 1 and "" or "s"),

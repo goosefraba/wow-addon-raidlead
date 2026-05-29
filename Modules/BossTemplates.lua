@@ -38,8 +38,10 @@ end
 -- Suppress flag — set true while applying remote changes so we don't re-broadcast
 BossTemplates._suppressBroadcast = false
 
--- True when boss configs are locked (read-only)
+-- True when boss configs are read-only: either the lead manually locked
+-- them, or this player lacks edit permission (not raid lead/assist).
 function BossTemplates.IsLocked()
+    if ns.CanEdit and not ns.CanEdit() then return true end
     return ns.db and ns.db.settings and ns.db.settings.bossLocked or false
 end
 

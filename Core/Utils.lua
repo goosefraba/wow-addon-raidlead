@@ -5,7 +5,7 @@
 local ADDON_NAME, ns = ...
 
 ns.ADDON_NAME    = ADDON_NAME
-ns.ADDON_VERSION = "1.2.3"
+ns.ADDON_VERSION = "1.2.7"
 ns.VERSION       = ns.ADDON_VERSION  -- alias used by version-compare paths
 ns.ACCENT        = "FF9933"
 ns.PREFIX        = "|cFF" .. ns.ACCENT .. "[RaidLead]|r "
@@ -110,6 +110,105 @@ function ns.ScanMarkedMobs()
     end
 
     return detected
+end
+
+----------------------------------------------------------------------
+-- Auto-mark: apply raid target icons to enemies by name.
+-- plan = { { iconIdx = 8, mob = "Krosh Firehand" }, ... }
+-- Scans visible nameplates + the group's targets / mouseover / focus for
+-- hostile units matching each plan entry's mob name and marks them.
+-- Entries sharing a mob name (e.g. 5x "Hellfire Channeler") each consume
+-- a distinct unit. Returns markedCount, missingNames (table).
+----------------------------------------------------------------------
+function ns.AutoMarkByPlan(plan)
+    if type(plan) ~= "table" then return 0, {} end
+
+    -- Gather unique hostile candidate units from every source we have.
+    local units, seen = {}, {}
+    local function add(unit)
+        if not UnitExists(unit) then return end
+        if UnitIsPlayer(unit) then return end
+        if not UnitCanAttack("player", unit) then return end
+        local guid = UnitGUID(unit)
+        if not guid or seen[guid] then return end
+        seen[guid] = true
+        units[#units + 1] = unit
+    end
+
+    if C_NamePlate and C_NamePlate.GetNamePlates then
+        for _, plate in ipairs(C_NamePlate.GetNamePlates()) do
+            if plate.namePlateUnitToken then add(plate.namePlateUnitToken) end
+        end
+    end
+    add("target"); add("mouseover"); add("focus")
+
+    local gt = ns.GetGroupType()
+    if gt == "raid" then
+        local n = GetNumRaidMembers and GetNumRaidMembers() or 0
+        for i = 1, n do add("raid" .. i .. "target") end
+    elseif gt == "party" then
+        local n = GetNumPartyMembers and GetNumPartyMembers() or 0
+        for i = 1, n do add("party" .. i .. "target") end
+    end
+
+    -- Assign icons, consuming one distinct unit per plan entry.
+    local used, marked, missing = {}, 0, {}
+    for _, entry in ipairs(plan) do
+        if entry.mob and entry.iconIdx then
+            local chosen
+            for _, unit in ipairs(units) do
+                local guid = UnitGUID(unit)
+                if not used[guid] and UnitName(unit) == entry.mob then
+                    chosen = unit
+                    used[guid] = true
+                    break
+                end
+            end
+            if chosen then
+                SetRaidTarget(chosen, entry.iconIdx)
+                marked = marked + 1
+            else
+                missing[#missing + 1] = entry.mob
+            end
+        end
+    end
+    return marked, missing
+end
+
+-- Convenience wrapper for boss widgets: builds a plan from a list of
+-- { iconIdx, mob, ... } rows, enforces the raid-marker permission, runs
+-- the mark, and prints a friendly result. Returns markedCount.
+function ns.AutoMarkBoss(list, bossName)
+    -- In a raid, only the leader / assistants may place world markers.
+    if ns.GetGroupType() == "raid" and ns.CanBroadcast and not ns.CanBroadcast() then
+        ns.P("|cFFFF8800Only the raid leader or an assistant can place raid markers.|r")
+        return 0
+    end
+
+    local plan = {}
+    for _, e in ipairs(list or {}) do
+        if e.mob and e.iconIdx then
+            plan[#plan + 1] = { iconIdx = e.iconIdx, mob = e.mob }
+        end
+    end
+
+    local total = #plan
+    local marked, missing = ns.AutoMarkByPlan(plan)
+
+    if marked == 0 then
+        ns.P("|cFF888888Auto-mark: no matching mobs in range. Enable enemy nameplates and get the pack on screen (or target them), then retry.|r")
+    elseif marked < total then
+        local uniq, seenName = {}, {}
+        for _, m in ipairs(missing) do
+            if not seenName[m] then seenName[m] = true; uniq[#uniq + 1] = m end
+        end
+        ns.P(string.format("Auto-mark: marked %d/%d. Not found: %s",
+            marked, total, table.concat(uniq, ", ")))
+    else
+        ns.P(string.format("|cFF66CC66Auto-mark:|r all %d mobs marked for %s.",
+            marked, bossName or "boss"))
+    end
+    return marked
 end
 
 function ns.BuildUnitList()

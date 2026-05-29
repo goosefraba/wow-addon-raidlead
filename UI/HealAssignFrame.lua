@@ -1,8 +1,10 @@
 ----------------------------------------------------------------------
 -- RaidLead — UI/HealAssignFrame.lua
--- Roles tab: two views switchable via a toggle at the top.
+-- "Assign" tab: raid-assignment hub with sub-views switchable via pills.
 --   1) "Assignments" - global healer assignments + hunter Misdirect
---   2) "Roster"      - declared role for every raid member, grouped
+--   2) "Cooldowns"   - raid cooldown caster/target assignments
+--   3) "CC"          - crowd-control caster per raid icon
+--   4) "Roster"      - declared role for every raid member, grouped
 ----------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
@@ -142,7 +144,7 @@ local function CreateRow(index)
     row.noHealBtn:SetPoint("LEFT", row.esDD, "RIGHT", 6, 0)
     row.noHealBtn:SetScript("OnClick", function()
         if ns.HealAssign.IsLocked() then
-            ns.P("|cFFFF8800Locked.|r Click the lock icon (top-right) to enable editing.")
+            ns.LockedNotice()
             return
         end
         if not row.healerName then return end
@@ -768,7 +770,7 @@ local cdClearBtn = ns.MakeSmallButton(cooldownsContainer, "Clear All", 80, 24)
 cdClearBtn:SetPoint("LEFT", cdAnnounceBtn, "RIGHT", 6, 0)
 cdClearBtn:SetScript("OnClick", function()
     if ns.CooldownAssign.IsLocked() then
-        ns.P("|cFFFF8800Locked.|r Click the lock icon (top-right) to enable editing.")
+        ns.LockedNotice()
         return
     end
     ns.CooldownAssign.ClearAllCDs()
@@ -909,7 +911,7 @@ local ccClearBtn = ns.MakeSmallButton(ccContainer, "Clear All", 80, 24)
 ccClearBtn:SetPoint("LEFT", ccAnnounceBtn, "RIGHT", 6, 0)
 ccClearBtn:SetScript("OnClick", function()
     if ns.CooldownAssign.IsLocked() then
-        ns.P("|cFFFF8800Locked.|r Click the lock icon (top-right) to enable editing.")
+        ns.LockedNotice()
         return
     end
     ns.CooldownAssign.ClearAllCC()
@@ -976,7 +978,7 @@ local clearBtn = ns.MakeSmallButton(healContent, "Clear All", 80, 24)
 clearBtn:SetPoint("LEFT", announceBtn, "RIGHT", 6, 0)
 clearBtn:SetScript("OnClick", function()
     if ns.HealAssign.IsLocked() then
-        ns.P("|cFFFF8800Locked.|r Click the lock icon (top-right) to enable editing.")
+        ns.LockedNotice()
         return
     end
     ns.HealAssign.ClearAll()
@@ -1081,4 +1083,4 @@ end
 ----------------------------------------------------------------------
 -- Register the tab
 ----------------------------------------------------------------------
-ns.RegisterTab("Roles", 25, healContent, RefreshActiveRolesView)
+ns.RegisterTab("Assign", 25, healContent, RefreshActiveRolesView)

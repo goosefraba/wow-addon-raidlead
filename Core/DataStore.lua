@@ -72,6 +72,11 @@ function ns.InitDB()
     --   { question = "...", options = { "A", "B", ... }, multi = false }
     if not ns.db.customPolls then ns.db.customPolls = {} end
 
+    -- Past poll results, kept locally for whoever ran the poll (never
+    -- broadcast). Each entry: { question, options = {...}, multi, counts =
+    -- {...}, voterTotal, endedAt }. Newest first; capped in Modules/Polls.
+    if not ns.db.pollHistory then ns.db.pollHistory = {} end
+
     -- Seed the built-in presets into the editable list exactly once. After
     -- this they're ordinary entries the lead can edit or delete; the
     -- pollsSeeded flag stops us re-adding ones they've removed.

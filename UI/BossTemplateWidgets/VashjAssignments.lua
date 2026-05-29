@@ -143,7 +143,7 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     clearBtn:SetPoint("LEFT", announceBtn, "RIGHT", 6, 0)
     clearBtn:SetScript("OnClick", function()
         if ns.BossTemplates.IsLocked() then
-            ns.P("|cFFFF8800Locked.|r Click the lock icon (top-right) to enable editing.")
+            ns.LockedNotice()
             return
         end
         ns.BossTemplates.ClearAssignments(BOSS_KEY)

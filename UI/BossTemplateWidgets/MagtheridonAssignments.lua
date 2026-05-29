@@ -188,7 +188,7 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     clearBtn:SetPoint("LEFT", announceBtn, "RIGHT", 6, 0)
     clearBtn:SetScript("OnClick", function()
         if ns.BossTemplates.IsLocked() then
-            ns.P("|cFFFF8800Locked.|r Click the lock icon (top-right) to enable editing.")
+            ns.LockedNotice()
             return
         end
         ns.BossTemplates.ClearAssignments(BOSS_KEY)
@@ -200,6 +200,25 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
             if lbl then lbl:SetText(cube.label) end
         end
     end)
+
+    local autoMarkBtn = ns.MakeSmallButton(widget, "Auto-Mark", 100, 24)
+    autoMarkBtn:SetPoint("LEFT", clearBtn, "RIGHT", 6, 0)
+    autoMarkBtn:SetScript("OnClick", function()
+        ns.AutoMarkBoss(bossData.cubes, bossData.name)
+        UpdateDetectedLabels()
+    end)
+    autoMarkBtn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Auto-Mark Channelers", 1, 0.82, 0.1)
+        GameTooltip:AddLine("One-click marks the 5 Hellfire Channelers with "
+            .. "Skull/Cross/Square/Moon/Triangle in the order they're found.",
+            0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Needs enemy nameplates on, channelers in range, and raid lead/assist.",
+            0.85, 0.55, 0.2, true)
+        GameTooltip:Show()
+    end)
+    autoMarkBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
     --------------------------------------------------------------------
     -- Compact view text

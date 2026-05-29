@@ -223,7 +223,7 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     clearBtn:SetPoint("LEFT", announceBtn, "RIGHT", 6, 0)
     clearBtn:SetScript("OnClick", function()
         if ns.BossTemplates.IsLocked() then
-            ns.P("|cFFFF8800Locked.|r Click the lock icon (top-right) to enable editing.")
+            ns.LockedNotice()
             return
         end
         ns.BossTemplates.ClearAssignments(BOSS_KEY)
@@ -234,6 +234,25 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
             if lbl then lbl:SetText("") end
         end
     end)
+
+    local autoMarkBtn = ns.MakeSmallButton(widget, "Auto-Mark", 100, 24)
+    autoMarkBtn:SetPoint("LEFT", clearBtn, "RIGHT", 6, 0)
+    autoMarkBtn:SetScript("OnClick", function()
+        ns.AutoMarkBoss(bossData.enemies, bossData.name)
+        UpdateDetectedLabels()
+    end)
+    autoMarkBtn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Auto-Mark Council", 1, 0.82, 0.1)
+        GameTooltip:AddLine("One-click marks each council member with its icon "
+            .. "(Krosh=Skull, Kiggler=Cross, Blindeye=Square, Olm=Moon, Maulgar=Triangle).",
+            0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Needs enemy nameplates on, mobs in range, and raid lead/assist.",
+            0.85, 0.55, 0.2, true)
+        GameTooltip:Show()
+    end)
+    autoMarkBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
     --------------------------------------------------------------------
     -- Refresh: load saved assignments into dropdowns

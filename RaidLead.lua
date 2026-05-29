@@ -268,6 +268,12 @@ loader:SetScript("OnEvent", function(self, event, ...)
         if ns.UpdateRoleCheckButton then ns.UpdateRoleCheckButton() end
         if ns.UpdateQuickPollButton then ns.UpdateQuickPollButton() end
 
+        -- Leadership change can flip edit permission; refresh the read-only
+        -- indicators (title tag + lock icon).
+        if ns.UpdateTitleBar then ns.UpdateTitleBar() end
+        if ns.UpdateLockIcon then ns.UpdateLockIcon() end
+        if ns.RefreshPollManager then ns.RefreshPollManager() end
+
         -- Refresh solo message state if panel is open (tab-aware: the
         -- placeholder only shows on the buff-scan tabs).
         local f = ns.mainFrame

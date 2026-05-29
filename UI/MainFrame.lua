@@ -89,6 +89,16 @@ local titleBar = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 titleBar:SetPoint("TOP", f, "TOP", 0, -14)
 titleBar:SetText("|cFF" .. ns.ACCENT .. "RaidLead|r")
 
+-- Title reflects edit permission: non-lead/assist see a "View only" tag so
+-- it's clear up front why controls are read-only.
+function ns.UpdateTitleBar()
+    if ns.CanEdit and not ns.CanEdit() then
+        titleBar:SetText("|cFF" .. ns.ACCENT .. "RaidLead|r   |cFFFF8800\194\183 View only|r")
+    else
+        titleBar:SetText("|cFF" .. ns.ACCENT .. "RaidLead|r")
+    end
+end
+
 -- Version warning chip (only shown when a newer version is known from
 -- a raid peer). Sits in the top-left corner where there is empty space
 -- next to the centered title; hover for full details.
@@ -240,34 +250,12 @@ local tabContents    = {}   -- [name] = frame
 local activeTab      = nil
 local soloMsg                -- assigned later
 
--- Loot history toggle (a "mode" overlay - hides tabs and shows history)
-local historyMode = false
-local function SetHistoryMode(enabled)
-    historyMode = enabled and true or false
-    local hist = ns.lootHistContent
-    if not hist then return end
-    if historyMode then
-        -- Hide regular content; show history
-        for _, btn in pairs(tabButtons) do btn:Hide() end
-        for _, cf in pairs(tabContents) do cf:Hide() end
-        if ns.bottomBar then ns.bottomBar:Hide() end
-        if soloMsg then soloMsg:Hide() end
-        hist:Show()
-        if ns.RefreshLootHistory then ns.RefreshLootHistory() end
-    else
-        hist:Hide()
-        -- Restore tabs and active tab content
-        for _, btn in pairs(tabButtons) do btn:Show() end
-        if ns.ShowTab and activeTab then ns.ShowTab(activeTab) end
-    end
-end
-ns.SetHistoryMode = SetHistoryMode
-
+-- Loot history is a regular tab now; this icon is a quick shortcut to it.
 local historyBtn = MakeIconButton(f,
     "Interface\\Icons\\INV_Misc_Note_05",
     "Loot History",
-    "Open the loot history viewer.",
-    function() SetHistoryMode(not historyMode) end)
+    "Jump to the History tab.",
+    function() if ns.ShowTab then ns.ShowTab("History") end end)
 historyBtn:SetPoint("RIGHT", scanBtn, "LEFT", -ICON_GAP, 0)
 -- Crop icon border
 local hNorm = historyBtn:GetNormalTexture()
@@ -288,7 +276,9 @@ local lockPushed = lockBtn:GetPushedTexture()
 if lockPushed then lockPushed:SetVertexColor(0.7, 0.7, 0.7, 1) end
 
 local function UpdateLockIcon()
-    local locked = ns.db and ns.db.settings and ns.db.settings.bossLocked
+    -- Effective read-only = manual lock OR no edit permission.
+    local viewOnly = ns.CanEdit and not ns.CanEdit()
+    local locked   = viewOnly or (ns.db and ns.db.settings and ns.db.settings.bossLocked)
     local tex = lockBtn:GetNormalTexture()
     if not tex then return end
     if locked then
@@ -303,6 +293,11 @@ end
 lockBtn:SetScript("OnClick", function()
     if not ns.db and ns.InitDB then ns.InitDB() end
     if not ns.db then return end
+    -- Non-lead/assist can't toggle the lock — they're read-only regardless.
+    if ns.CanEdit and not ns.CanEdit() then
+        ns.LockedNotice()
+        return
+    end
     ns.db.settings.bossLocked = not ns.db.settings.bossLocked
     UpdateLockIcon()
     if ns.db.settings.bossLocked then
@@ -313,13 +308,18 @@ lockBtn:SetScript("OnClick", function()
 end)
 lockBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    local locked = ns.db and ns.db.settings and ns.db.settings.bossLocked
-    if locked then
-        GameTooltip:AddLine("Configs LOCKED", 1, 0.4, 0.4)
-        GameTooltip:AddLine("Click to unlock and allow edits.", 0.8, 0.8, 0.8, true)
+    if ns.CanEdit and not ns.CanEdit() then
+        GameTooltip:AddLine("View only", 1, 0.4, 0.4)
+        GameTooltip:AddLine("Only the raid leader or assistants can edit assignments.", 0.8, 0.8, 0.8, true)
     else
-        GameTooltip:AddLine("Configs UNLOCKED", 0.4, 1, 0.4)
-        GameTooltip:AddLine("Click to lock and prevent accidental edits.", 0.8, 0.8, 0.8, true)
+        local locked = ns.db and ns.db.settings and ns.db.settings.bossLocked
+        if locked then
+            GameTooltip:AddLine("Configs LOCKED", 1, 0.4, 0.4)
+            GameTooltip:AddLine("Click to unlock and allow edits.", 0.8, 0.8, 0.8, true)
+        else
+            GameTooltip:AddLine("Configs UNLOCKED", 0.4, 1, 0.4)
+            GameTooltip:AddLine("Click to lock and prevent accidental edits.", 0.8, 0.8, 0.8, true)
+        end
     end
     GameTooltip:Show()
 end)
@@ -369,7 +369,7 @@ local function RebuildTabButtons()
     for _, btn in pairs(tabButtons) do btn:Hide() end
     tabButtons = {}
 
-    local tabW = 80
+    local tabW = 72
     for i, tab in ipairs(registeredTabs) do
         local btn = CreateFrame("Button", nil, f)
         btn:SetSize(tabW, 22)
@@ -458,6 +458,8 @@ function ns.ShowTab(name)
     end
 
     UpdateSoloMsg()
+    if ns.UpdateTitleBar then ns.UpdateTitleBar() end
+    UpdateLockIcon()
 end
 
 ns.activeTab = function() return activeTab end
@@ -640,7 +642,6 @@ function ns.ApplyCompactMode()
         lockBtn:Hide()
         settingsBtn:Hide()
         historyBtn:Hide()
-        if ns.lootHistContent then ns.lootHistContent:Hide() end
         titleBar:Hide()
         -- Compact button stays visible (so user can toggle back) but reposition
         for _, btn in pairs(tabButtons) do btn:Hide() end
