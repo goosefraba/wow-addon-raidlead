@@ -70,18 +70,36 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     --------------------------------------------------------------------
     -- Cube Clickers (one per raid icon)
     --------------------------------------------------------------------
-    local cubeHeader = ns.MakeSectionHeader(widget, "Cube Clickers (mark channelers, same icon = same cube)")
+    local cubeHeader = ns.MakeSectionHeader(widget, "Channelers — tank (P1) + cube clicker (P2)")
     cubeHeader:SetPoint("TOPLEFT", tankRow, "BOTTOMLEFT", -4, -14)
     cubeHeader:SetPoint("RIGHT", widget, "RIGHT", -120, 0)  -- leave space for Scan Marks button
 
-    local ROW_H = 28
+    local ROW_H    = 28
     local ICON_SIZE = 20
+    local LABEL_X  = 28      -- after the icon
+    local TANK_X   = 130     -- slot 2 dropdown
+    local CLICK_X  = 262     -- slot 1 dropdown
+    local DD_W     = 124
+
+    -- Column headers
+    local function ColHeader(text, x)
+        local fs = widget:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        fs:SetPoint("TOPLEFT", cubeHeader, "BOTTOMLEFT", x, -4)
+        fs:SetText(text)
+        fs:SetTextColor(0.85, 0.85, 0.85)
+    end
+    ColHeader("Mark",    LABEL_X)
+    ColHeader("Tank",    TANK_X)
+    ColHeader("Clicker", CLICK_X)
+
+    -- cubeDD[cube.key] = { tank = <dd>, clicker = <dd> }
+    local cubeDD = {}
 
     for cIdx, cube in ipairs(bossData.cubes) do
-        local yOff = -6 - (cIdx - 1) * ROW_H
+        local yOff = -22 - (cIdx - 1) * ROW_H
 
         local row = CreateFrame("Frame", nil, widget)
-        row:SetSize(400, ROW_H - 2)
+        row:SetSize(420, ROW_H - 2)
         row:SetPoint("TOPLEFT", cubeHeader, "BOTTOMLEFT", 0, yOff)
 
         -- Raid icon texture
@@ -98,7 +116,7 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
         iconFrame:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine(iconName, 1, 1, 1)
-            GameTooltip:AddLine("Assign this icon to one Hellfire Channeler in phase 1.", 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine("Mark one Hellfire Channeler with this icon in phase 1.", 0.8, 0.8, 0.8, true)
             GameTooltip:Show()
         end)
         iconFrame:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -106,20 +124,32 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
         -- Label + detected mob info
         local label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         label:SetPoint("LEFT", iconFrame, "RIGHT", 6, 0)
-        label:SetWidth(160)
+        label:SetWidth(TANK_X - LABEL_X - 6)
         label:SetJustifyH("LEFT")
+        label:SetWordWrap(false)
         label:SetText(cube.label)
         detectedLabels[cube.key] = label
 
-        -- Player dropdown
         local cubeKey = cube.key
-        local dd = ns.CreatePlayerDropdown(row, 180, function(playerName)
+
+        -- Tank (slot 2) — filtered to tank-capable classes
+        local tankDD = ns.CreatePlayerDropdown(row, DD_W, function(playerName)
+            ns.BossTemplates.SetAssignment(BOSS_KEY, cubeKey, PHASE_KEY, 2, playerName)
+        end)
+        tankDD.respectLock = true
+        tankDD.classFilter = { WARRIOR = true, DRUID = true, PALADIN = true }
+        tankDD:SetPoint("TOPLEFT", row, "TOPLEFT", TANK_X, -2)
+
+        -- Clicker (slot 1) — anyone
+        local clickDD = ns.CreatePlayerDropdown(row, DD_W, function(playerName)
             ns.BossTemplates.SetAssignment(BOSS_KEY, cubeKey, PHASE_KEY, 1, playerName)
         end)
-        dd.respectLock = true
-        dd:SetPoint("TOPLEFT", row, "TOPLEFT", 200, -2)
-        dropdowns[cube.key] = dd
+        clickDD.respectLock = true
+        clickDD:SetPoint("TOPLEFT", row, "TOPLEFT", CLICK_X, -2)
+
+        cubeDD[cube.key] = { tank = tankDD, clicker = clickDD }
     end
+    widget._cubeDD = cubeDD
 
     --------------------------------------------------------------------
     -- Scan Marks button (detect currently marked mobs)
@@ -152,13 +182,14 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     -- Announce
     --------------------------------------------------------------------
     local function BuildAnnounceLines()
-        local lines = { "== " .. bossData.name .. " ==" }
+        local lines = { "== " .. bossData.name .. " - Tanks & Cube Clickers ==" }
         local tank = ns.BossTemplates.GetAssignment(BOSS_KEY, TANK_KEY, PHASE_KEY, 1) or "?"
-        lines[#lines + 1] = "Tank: " .. tank
+        lines[#lines + 1] = "Main Tank: " .. tank
         for _, cube in ipairs(bossData.cubes) do
-            local name = ns.BossTemplates.GetAssignment(BOSS_KEY, cube.key, PHASE_KEY, 1) or "?"
+            local clicker = ns.BossTemplates.GetAssignment(BOSS_KEY, cube.key, PHASE_KEY, 1) or "?"
+            local ctank   = ns.BossTemplates.GetAssignment(BOSS_KEY, cube.key, PHASE_KEY, 2) or "?"
             local iconStr = ns.GetRaidIconText(cube.iconIdx)
-            lines[#lines + 1] = iconStr .. " " .. cube.label .. ": " .. name
+            lines[#lines + 1] = iconStr .. " Tank: " .. ctank .. " | Cube: " .. clicker
         end
         return lines
     end
@@ -192,8 +223,10 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
             return
         end
         ns.BossTemplates.ClearAssignments(BOSS_KEY)
-        for _, dd in pairs(dropdowns) do
-            dd:SetSelectedPlayer(nil, nil)
+        if dropdowns[TANK_KEY] then dropdowns[TANK_KEY]:SetSelectedPlayer(nil, nil) end
+        for _, c in pairs(widget._cubeDD or {}) do
+            if c.tank    then c.tank:SetSelectedPlayer(nil, nil) end
+            if c.clicker then c.clicker:SetSelectedPlayer(nil, nil) end
         end
         for _, cube in ipairs(bossData.cubes) do
             local lbl = detectedLabels[cube.key]
@@ -231,9 +264,10 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
         lines[#lines + 1] = "|cFFFF6666Tank|r " .. tank
 
         for _, cube in ipairs(bossData.cubes) do
-            local name = ns.BossTemplates.GetAssignment(BOSS_KEY, cube.key, PHASE_KEY, 1) or "-"
+            local clicker = ns.BossTemplates.GetAssignment(BOSS_KEY, cube.key, PHASE_KEY, 1) or "-"
+            local ctank   = ns.BossTemplates.GetAssignment(BOSS_KEY, cube.key, PHASE_KEY, 2) or "-"
             local iconTex = "|T" .. ns.GetRaidIconTexture(cube.iconIdx) .. ":16|t"
-            lines[#lines + 1] = iconTex .. " " .. name
+            lines[#lines + 1] = iconTex .. " |cFFFF6666" .. ctank .. "|r / " .. clicker
         end
         return table.concat(lines, "\n")
     end
@@ -243,23 +277,26 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     --------------------------------------------------------------------
     function widget.Refresh()
         local roster = ns.BossTemplates.GetPlayerRoster()
-        local function LoadSlot(key)
-            local dd = dropdowns[key]
-            if not dd then return end
-            local saved = ns.BossTemplates.GetAssignment(BOSS_KEY, key, PHASE_KEY, 1)
-            if saved then
-                local class = "UNKNOWN"
-                for _, p in ipairs(roster) do
-                    if p.name == saved then class = p.class; break end
-                end
-                dd:SetSelectedPlayer(saved, class)
-            else
-                dd:SetSelectedPlayer(nil, nil)
+        local function classOf(name)
+            for _, p in ipairs(roster) do
+                if p.name == name then return p.class end
             end
+            return "UNKNOWN"
         end
-        LoadSlot(TANK_KEY)
+        local function load(dd, key, slot)
+            if not dd then return end
+            local saved = ns.BossTemplates.GetAssignment(BOSS_KEY, key, PHASE_KEY, slot)
+            if saved then dd:SetSelectedPlayer(saved, classOf(saved))
+            else dd:SetSelectedPlayer(nil, nil) end
+        end
+
+        load(dropdowns[TANK_KEY], TANK_KEY, 1)
         for _, cube in ipairs(bossData.cubes) do
-            LoadSlot(cube.key)
+            local c = widget._cubeDD and widget._cubeDD[cube.key]
+            if c then
+                load(c.tank,    cube.key, 2)
+                load(c.clicker, cube.key, 1)
+            end
         end
     end
 

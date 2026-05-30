@@ -61,6 +61,17 @@ SlashCmdList["RAIDLEAD"] = function(msg)
             ns.BossTemplates.RequestSync()
         end
 
+    elseif cmd == "mark" or cmd == "markpack" then
+        if ns.AutoMarkPack then ns.AutoMarkPack() end
+
+    elseif cmd == "marknext" then
+        local sub = (rest or ""):lower():trim()
+        if sub == "reset" then
+            if ns.ResetMarkSequence then ns.ResetMarkSequence() end
+        elseif ns.MarkNextTarget then
+            ns.MarkNextTarget()
+        end
+
     elseif cmd == "settings" or cmd == "config" or cmd == "options" then
         local sp = RaidLeadSettings
         if sp then
@@ -120,6 +131,8 @@ SlashCmdList["RAIDLEAD"] = function(msg)
         ns.P("  |cFFFFCC00/rl announce buffs|r \226\128\148 Post missing consumables only")
         ns.P("  |cFFFFCC00/rl announce raidbuffs|r \226\128\148 Post missing raid buffs only")
         ns.P("  |cFFFFCC00/rl sync|r \226\128\148 Pull boss assignments from group")
+        ns.P("  |cFFFFCC00/rl mark|r \226\128\148 Mark visible hostiles (Skull, Cross, \226\128\166)")
+        ns.P("  |cFFFFCC00/rl marknext|r \226\128\148 Mark your target with the next icon (|cFFFFCC00reset|r to restart)")
         ns.P("  |cFFFFCC00/rl settings|r \226\128\148 Open settings")
         ns.P("  |cFFFFCC00/rl debug|r \226\128\148 Toggle debug mode")
         ns.P("  |cFFFFCC00/rl roletest [name]|r \226\128\148 Open the role-check popup locally")

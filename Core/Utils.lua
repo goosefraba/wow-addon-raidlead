@@ -5,7 +5,7 @@
 local ADDON_NAME, ns = ...
 
 ns.ADDON_NAME    = ADDON_NAME
-ns.ADDON_VERSION = "1.2.7"
+ns.ADDON_VERSION = "1.5.0"
 ns.VERSION       = ns.ADDON_VERSION  -- alias used by version-compare paths
 ns.ACCENT        = "FF9933"
 ns.PREFIX        = "|cFF" .. ns.ACCENT .. "[RaidLead]|r "
@@ -120,10 +120,9 @@ end
 -- Entries sharing a mob name (e.g. 5x "Hellfire Channeler") each consume
 -- a distinct unit. Returns markedCount, missingNames (table).
 ----------------------------------------------------------------------
-function ns.AutoMarkByPlan(plan)
-    if type(plan) ~= "table" then return 0, {} end
-
-    -- Gather unique hostile candidate units from every source we have.
+-- Gather unique hostile candidate units from every source we have:
+-- visible enemy nameplates + the group's targets / mouseover / focus.
+function ns.CollectHostileUnits()
     local units, seen = {}, {}
     local function add(unit)
         if not UnitExists(unit) then return end
@@ -150,6 +149,14 @@ function ns.AutoMarkByPlan(plan)
         local n = GetNumPartyMembers and GetNumPartyMembers() or 0
         for i = 1, n do add("party" .. i .. "target") end
     end
+
+    return units
+end
+
+function ns.AutoMarkByPlan(plan)
+    if type(plan) ~= "table" then return 0, {} end
+
+    local units = ns.CollectHostileUnits()
 
     -- Assign icons, consuming one distinct unit per plan entry.
     local used, marked, missing = {}, 0, {}
@@ -209,6 +216,150 @@ function ns.AutoMarkBoss(list, bossName)
             marked, bossName or "boss"))
     end
     return marked
+end
+
+----------------------------------------------------------------------
+-- Generic "mark this pack": apply raid icons to whatever visible hostiles
+-- aren't marked yet, in priority order. Independent of any boss data.
+-- Icons already on visible mobs are left alone and not reused.
+-- Returns markedCount, unmarkedSeen.
+----------------------------------------------------------------------
+ns.MARK_ORDER = { 8, 7, 6, 5, 4, 3, 2, 1 }  -- Skull, Cross, Square, Moon, Triangle, Diamond, Circle, Star
+
+function ns.AutoMarkVisible(opts)
+    opts = opts or {}
+    local order = opts.icons or ns.MARK_ORDER
+
+    local units = ns.CollectHostileUnits()
+
+    -- Split into already-marked (note their icons) vs. unmarked.
+    local usedIcon, unmarked = {}, {}
+    for _, u in ipairs(units) do
+        local idx = GetRaidTargetIndex(u)
+        if idx and idx > 0 then
+            usedIcon[idx] = true
+        else
+            unmarked[#unmarked + 1] = u
+        end
+    end
+
+    -- Free icons in priority order (skip ones already in use on the pack).
+    local freeIcons = {}
+    for _, i in ipairs(order) do
+        if not usedIcon[i] then freeIcons[#freeIcons + 1] = i end
+    end
+
+    local marked = 0
+    for _, u in ipairs(unmarked) do
+        local icon = freeIcons[marked + 1]
+        if not icon then break end
+        SetRaidTarget(u, icon)
+        marked = marked + 1
+    end
+    return marked, #unmarked
+end
+
+-- Button/slash entry point: permission-gated + friendly reporting.
+function ns.AutoMarkPack()
+    if ns.GetGroupType() == "raid" and ns.CanBroadcast and not ns.CanBroadcast() then
+        ns.P("|cFFFF8800Only the raid leader or an assistant can place raid markers.|r")
+        return 0
+    end
+
+    local marked, unmarkedSeen = ns.AutoMarkVisible()
+    if marked == 0 then
+        if unmarkedSeen == 0 then
+            ns.P("|cFF888888Mark pack: nothing to mark. Get the pack on screen with enemy nameplates on (or target the mobs), then retry.|r")
+        else
+            ns.P("|cFF888888Mark pack: ran out of free raid icons.|r")
+        end
+    else
+        ns.P(string.format("|cFF66CC66Mark pack:|r marked %d mob(s).", marked))
+    end
+    return marked
+end
+
+----------------------------------------------------------------------
+-- One-by-one marking: stamp the player's current target with the next
+-- icon in priority order, advancing each call. Targeting reaches much
+-- farther than nameplates, so this is the way to mark spread packs.
+----------------------------------------------------------------------
+local markCursor = 1  -- 1-based index into ns.MARK_ORDER
+
+function ns.GetNextMarkIcon()
+    return ns.MARK_ORDER[markCursor]
+end
+
+-- Stamp the current target with a specific icon. Validated + permission
+-- gated. Returns true on success. Does NOT touch any other unit, so it
+-- can never steal an icon from a mob we can't currently see.
+function ns.MarkTargetWith(icon)
+    if ns.GetGroupType() == "raid" and ns.CanBroadcast and not ns.CanBroadcast() then
+        ns.P("|cFFFF8800Only the raid leader or an assistant can place raid markers.|r")
+        return false
+    end
+    if not UnitExists("target") then
+        ns.P("|cFF888888Target an enemy first.|r")
+        return false
+    end
+    if UnitIsPlayer("target") then
+        ns.P("|cFF888888That's a player, not a mob.|r")
+        return false
+    end
+    SetRaidTarget("target", icon)
+    return true
+end
+
+function ns.ResetMarkSequence()
+    markCursor = 1
+    if ns.UpdateMarkNextLabel then ns.UpdateMarkNextLabel() end
+    ns.P("Mark sequence reset (next: Skull).")
+end
+
+function ns.MarkNextTarget()
+    local icon = ns.MARK_ORDER[markCursor]
+    if not ns.MarkTargetWith(icon) then return end
+
+    local iconName = ns.RAID_ICON_NAMES and ns.RAID_ICON_NAMES[icon] or ("icon " .. icon)
+    ns.P("|cFF66CC66Marked|r " .. (UnitName("target") or "target") .. " with " .. iconName .. ".")
+
+    markCursor = markCursor + 1
+    if markCursor > #ns.MARK_ORDER then
+        markCursor = 1
+        ns.P("|cFF888888(all 8 icons used \226\128\148 cycling back to Skull)|r")
+    end
+
+    if ns.UpdateMarkNextLabel then ns.UpdateMarkNextLabel() end
+    -- Reflect the new mark on the Marks board if it's open.
+    if ns.MarkBoard and ns.MarkBoard.ScanAndUpdate then
+        ns.MarkBoard.ScanAndUpdate()
+        if ns.RefreshMarksView then ns.RefreshMarksView() end
+    end
+end
+
+-- Remove raid target icons from every visible hostile, and reset the Mark
+-- Next sequence. Only clears mobs we can see (nameplates + targets); far
+-- ones keep their icons. Returns the count cleared.
+function ns.ClearVisibleMarks()
+    if ns.GetGroupType() == "raid" and ns.CanBroadcast and not ns.CanBroadcast() then
+        ns.P("|cFFFF8800Only the raid leader or an assistant can clear raid markers.|r")
+        return 0
+    end
+    local cleared = 0
+    for _, u in ipairs(ns.CollectHostileUnits()) do
+        if GetRaidTargetIndex(u) then
+            SetRaidTarget(u, 0)
+            cleared = cleared + 1
+        end
+    end
+    markCursor = 1
+    if ns.UpdateMarkNextLabel then ns.UpdateMarkNextLabel() end
+    if cleared == 0 then
+        ns.P("|cFF888888No visible marked mobs to clear (out of range ones keep their icons).|r")
+    else
+        ns.P(string.format("|cFF66CC66Cleared|r %d raid marker(s).", cleared))
+    end
+    return cleared
 end
 
 function ns.BuildUnitList()

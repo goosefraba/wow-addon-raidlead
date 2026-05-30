@@ -141,7 +141,7 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     end
 
     local function BuildAnnounceLines()
-        local lines = { "== " .. bossData.name .. " ==" }
+        local lines = { "== " .. bossData.name .. " - Advisor Tanks ==" }
         for _, enemy in ipairs(bossData.enemies) do
             local tank = ns.BossTemplates.GetAssignment(BOSS_KEY, enemy.key, PHASE_KEY, 1) or "?"
             local iconStr = ns.GetRaidIconText and ns.GetRaidIconText(enemy.iconIdx) or ""

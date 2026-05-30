@@ -789,8 +789,18 @@ function ns.CreatePlayerDropdown(parent, width, onSelect)
         end
         CloseActiveDropdown()
 
-        -- Populate roster
+        -- Populate roster, optionally narrowed to specific classes
+        -- (e.g. CC dropdowns only offer Mages/Warlocks).
         popup.roster = ns.BossTemplates.GetPlayerRoster()
+        if btn.classFilter then
+            local filtered = {}
+            for _, e in ipairs(popup.roster) do
+                if btn.classFilter[(e.class or ""):upper()] then
+                    filtered[#filtered + 1] = e
+                end
+            end
+            popup.roster = filtered
+        end
 
         -- Position below the button
         popup:ClearAllPoints()

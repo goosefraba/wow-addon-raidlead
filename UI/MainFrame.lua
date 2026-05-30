@@ -411,7 +411,7 @@ end
 -- only there; on Boss/Roles/Polls/Profile it must stay hidden.
 local function UpdateSoloMsg()
     if not soloMsg then return end
-    local isBuffTab = (activeTab == "Grid" or activeTab == "Missing")
+    local isBuffTab = (activeTab == "Grid")
     local isSolo = isBuffTab
         and ns.GetGroupType() == "solo"
         and #ns.BuffScan.scanSorted == 0
@@ -444,7 +444,7 @@ function ns.ShowTab(name)
     -- Bottom bar is only used by Grid/Missing (buff scan tabs).
     -- Boss / Healers tabs have their own bottom controls.
     if ns.bottomBar then
-        if name == "Grid" or name == "Missing" then
+        if name == "Grid" then
             ns.bottomBar:Show()
         else
             ns.bottomBar:Hide()
@@ -491,6 +491,19 @@ function ns.ShowAnnounceMenu(mode, anchor)
     ns.ShowContextMenu(menu, "cursor", 0, 0)
 end
 
+-- Nudge menu: ping players who are missing consumables.
+function ns.ShowNudgeMenu()
+    local menu = { { text = "Nudge missing consumables", isTitle = true } }
+    menu[#menu + 1] = { text = "Whisper each player", func = function() ns.BuffScan.NudgeWhisper() end }
+    local gt = ns.GetGroupType()
+    if gt == "raid" then
+        menu[#menu + 1] = { text = "Callout to raid",  func = function() ns.BuffScan.NudgeCallout("RAID") end }
+    elseif gt == "party" then
+        menu[#menu + 1] = { text = "Callout to party", func = function() ns.BuffScan.NudgeCallout("PARTY") end }
+    end
+    ns.ShowContextMenu(menu, "cursor", 0, 0)
+end
+
 -- Create announce buttons
 local btnConsumables = ns.MakeAnnounceBtn(bottomBar, "LEFT", nil, 0,
     "Consumables", "Announce Missing Consumables", "consumables")
@@ -498,6 +511,27 @@ local btnRaidBuffs = ns.MakeAnnounceBtn(bottomBar, btnConsumables, "RIGHT", 4,
     "Raid Buffs", "Announce Missing Raid Buffs", "raidbuffs")
 local btnAll = ns.MakeAnnounceBtn(bottomBar, btnRaidBuffs, "RIGHT", 4,
     "All", "Announce Everything Missing", "all")
+
+-- Nudge: left-click whispers each player missing consumables; right-click
+-- offers whisper vs. a grouped raid/party callout.
+local btnNudge = ns.MakeSmallButton(bottomBar, "Nudge", 64, 22)
+btnNudge:SetPoint("LEFT", btnAll, "RIGHT", 8, 0)
+btnNudge:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+btnNudge:SetScript("OnClick", function(self, button)
+    if button == "RightButton" then
+        ns.ShowNudgeMenu()
+    else
+        ns.BuffScan.NudgeWhisper()
+    end
+end)
+btnNudge:HookScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("Nudge Missing Consumables", 1, 0.82, 0.1)
+    GameTooltip:AddLine("Left-click: whisper each player missing flask/elixir/food", 0.8, 0.8, 0.8)
+    GameTooltip:AddLine("Right-click: choose whisper or a raid/party callout", 0.8, 0.8, 0.8)
+    GameTooltip:Show()
+end)
+btnNudge:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
 local statusText = bottomBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 statusText:SetPoint("RIGHT", bottomBar, "RIGHT", 0, 0)
@@ -526,6 +560,58 @@ compactText:SetSpacing(3)
 local fontFile, _, fontFlags = compactText:GetFont()
 if fontFile then compactText:SetFont(fontFile, 10, fontFlags) end
 
+-- Apply the compact panel's appearance (border on/off). Alpha is handled
+-- separately (slider / fade). Safe to call live from settings or the menu.
+function ns.ApplyCompactAppearance()
+    if not (ns.db and ns.db.settings and ns.db.settings.compactMode) then return end
+    if not f.SetBackdrop then return end
+    local src = ns.COMPACT_BACKDROP.backdrop
+    local showBorder = ns.db.settings.compactBorder ~= false
+    f:SetBackdrop({
+        bgFile   = src.bgFile,
+        edgeFile = showBorder and src.edgeFile or nil,
+        tile     = src.tile,
+        tileSize = src.tileSize,
+        edgeSize = showBorder and src.edgeSize or nil,
+        insets   = showBorder and { left = 3, right = 3, top = 3, bottom = 3 }
+                              or  { left = 0, right = 0, top = 0, bottom = 0 },
+    })
+    f:SetBackdropColor(unpack(ns.COMPACT_BACKDROP.color))
+end
+
+-- Right-click the compact overlay for a quick section/appearance menu.
+-- Left-drag still moves the window.
+compactFrame:EnableMouse(true)
+compactFrame:RegisterForDrag("LeftButton")
+compactFrame:SetScript("OnDragStart", function() f:StartMoving() end)
+compactFrame:SetScript("OnDragStop",  function() f:StopMovingOrSizing() end)
+compactFrame:SetScript("OnMouseUp", function(self, button)
+    if button ~= "RightButton" then return end
+    if not (ns.db and ns.db.settings) then return end
+    local s = ns.db.settings
+    local function tog(label, key, onToggle)
+        local on = (key == "compactBorder") and (s[key] ~= false) or (s[key] and true or false)
+        local mark = on and "|cFF44FF44[x]|r " or "|cFF777777[ ]|r "
+        return { text = mark .. label, func = function()
+            s[key] = not on
+            if onToggle then onToggle() end
+        end }
+    end
+    local refresh = function() if ns.UpdateCompactDisplay then ns.UpdateCompactDisplay() end end
+    ns.ShowContextMenu({
+        { text = "Show in compact view", isTitle = true },
+        tog("Boss mechanics",     "compactShowBoss",      refresh),
+        tog("Marks (tanks/CC)",   "compactShowMarks",     refresh),
+        tog("Healer assignments", "compactShowHealers",   refresh),
+        tog("Cooldowns",          "compactShowCooldowns", refresh),
+        tog("Misdirect",          "compactShowMisdirects", refresh),
+        { text = "Appearance", isTitle = true },
+        tog("Border", "compactBorder", function()
+            if ns.ApplyCompactAppearance then ns.ApplyCompactAppearance() end
+        end),
+    }, "cursor", 0, 0)
+end)
+
 function ns.UpdateCompactDisplay()
     if not ns.db or not ns.db.settings.compactMode then return end
     local s = ns.db.settings
@@ -544,11 +630,27 @@ function ns.UpdateCompactDisplay()
         end
     end
 
+    -- Marks board section (tank / CC / interrupt per raid icon)
+    if s.compactShowMarks and ns.MarkBoard and ns.MarkBoard.BuildCompactText then
+        local txt = ns.MarkBoard.BuildCompactText()
+        if txt and txt ~= "" then
+            sections[#sections + 1] = "|cFFFFCC00Marks|r\n" .. txt
+        end
+    end
+
     -- Healer assignments section
     if s.compactShowHealers and ns.HealAssign and ns.HealAssign.BuildHealersCompactText then
         local txt = ns.HealAssign.BuildHealersCompactText()
         if txt and txt ~= "" then
             sections[#sections + 1] = "|cFFFFCC00Healers|r\n" .. txt
+        end
+    end
+
+    -- Raid cooldowns section
+    if s.compactShowCooldowns and ns.CooldownAssign and ns.CooldownAssign.BuildCompactText then
+        local txt = ns.CooldownAssign.BuildCompactText()
+        if txt and txt ~= "" then
+            sections[#sections + 1] = "|cFFFFCC00Cooldowns|r\n" .. txt
         end
     end
 
@@ -561,11 +663,7 @@ function ns.UpdateCompactDisplay()
     end
 
     if #sections == 0 then
-        if not s.compactShowBoss and not s.compactShowHealers and not s.compactShowMisdirects then
-            compactText:SetText("|cFFFFCC00All sections hidden.|r\nEnable some in /rl settings.")
-        else
-            compactText:SetText("|cFF888888(nothing configured to show)|r")
-        end
+        compactText:SetText("|cFF888888Nothing to show. Right-click to pick sections.|r")
     else
         compactText:SetText(table.concat(sections, "\n\n"))
     end
@@ -619,11 +717,8 @@ function ns.ApplyCompactMode()
             ns.db.frame.height = f:GetHeight()
         end
 
-        -- Swap to a clean minimal backdrop
-        if f.SetBackdrop then
-            f:SetBackdrop(ns.COMPACT_BACKDROP.backdrop)
-            f:SetBackdropColor(unpack(ns.COMPACT_BACKDROP.color))
-        end
+        -- Swap to a clean minimal backdrop (border honors the setting)
+        ns.ApplyCompactAppearance()
 
         -- Allow much smaller sizes in compact mode
         if f.SetMinResize then
@@ -720,7 +815,7 @@ end
 -- Settings panel — tabbed (General / Buff Scanner / Compact View)
 ----------------------------------------------------------------------
 do
-    local SP_W, SP_H = 360, 440
+    local SP_W, SP_H = 360, 480
     local sp = CreateFrame("Frame", "RaidLeadSettings", UIParent)
     sp:SetSize(SP_W, SP_H)
     sp:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
@@ -1021,48 +1116,47 @@ do
             end
         end)
 
+        -- Border toggle (appearance)
+        yOff = yOff - 34
+        local compactBorderToggle = ns.CreateToggle(compactPane, yOff,
+            "Show border",
+            "Draw a border around the compact panel.",
+            function() return ns.db and ns.db.settings and ns.db.settings.compactBorder ~= false end,
+            function(val)
+                if ns.db and ns.db.settings then ns.db.settings.compactBorder = val and true or false end
+                if ns.ApplyCompactAppearance then ns.ApplyCompactAppearance() end
+            end
+        )
+
         -- Show in compact view section
-        yOff = yOff - 36
+        yOff = yOff - 44
         local sectionHeader = ns.MakeSectionHeader(compactPane, "Show in Compact View")
         sectionHeader:SetPoint("TOPLEFT", compactPane, "TOPLEFT", 0, yOff)
         sectionHeader:SetPoint("RIGHT", compactPane, "RIGHT", 0, 0)
 
-        yOff = yOff - 26
-        local compactBossToggle = ns.CreateToggle(compactPane, yOff,
-            "Boss assignments",
-            "Display the active boss's assignments.",
-            function() return ns.db and ns.db.settings and ns.db.settings.compactShowBoss or false end,
-            function(val)
-                if ns.db and ns.db.settings then ns.db.settings.compactShowBoss = val end
-                if ns.UpdateCompactDisplay then ns.UpdateCompactDisplay() end
-            end
-        )
+        local function ShowToggle(label, desc, key)
+            yOff = yOff - 44
+            return ns.CreateToggle(compactPane, yOff, label, desc,
+                function() return ns.db and ns.db.settings and ns.db.settings[key] or false end,
+                function(val)
+                    if ns.db and ns.db.settings then ns.db.settings[key] = val end
+                    if ns.UpdateCompactDisplay then ns.UpdateCompactDisplay() end
+                end)
+        end
 
-        yOff = yOff - 44
-        local compactHealersToggle = ns.CreateToggle(compactPane, yOff,
-            "Healer assignments",
-            "Display global healer assignments.",
-            function() return ns.db and ns.db.settings and ns.db.settings.compactShowHealers or false end,
-            function(val)
-                if ns.db and ns.db.settings then ns.db.settings.compactShowHealers = val end
-                if ns.UpdateCompactDisplay then ns.UpdateCompactDisplay() end
-            end
-        )
-
-        yOff = yOff - 44
-        local compactMDToggle = ns.CreateToggle(compactPane, yOff,
-            "Misdirect assignments",
-            "Display hunter misdirect assignments.",
-            function() return ns.db and ns.db.settings and ns.db.settings.compactShowMisdirects or false end,
-            function(val)
-                if ns.db and ns.db.settings then ns.db.settings.compactShowMisdirects = val end
-                if ns.UpdateCompactDisplay then ns.UpdateCompactDisplay() end
-            end
-        )
+        yOff = yOff + 18  -- counter the first ShowToggle's -44 so row 1 sits 26 below the header
+        local compactBossToggle    = ShowToggle("Boss mechanics",     "The active boss's assignments.",          "compactShowBoss")
+        local compactMarksToggle   = ShowToggle("Marks (tanks / CC)", "Tank / CC / interrupt per raid icon.",     "compactShowMarks")
+        local compactHealersToggle = ShowToggle("Healer assignments", "Global healer assignments.",               "compactShowHealers")
+        local compactCDToggle      = ShowToggle("Cooldowns",          "Raid cooldown assignments.",               "compactShowCooldowns")
+        local compactMDToggle      = ShowToggle("Misdirect",          "Hunter misdirect assignments.",            "compactShowMisdirects")
 
         compactPane.Refresh = function()
+            compactBorderToggle.Refresh()
             compactBossToggle.Refresh()
+            compactMarksToggle.Refresh()
             compactHealersToggle.Refresh()
+            compactCDToggle.Refresh()
             compactMDToggle.Refresh()
             if ns.db and ns.db.settings then
                 slider:SetValue(ns.db.settings.compactAlpha or 0.92)

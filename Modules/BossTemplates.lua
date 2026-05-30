@@ -184,6 +184,28 @@ function BossTemplates.SendLines(lines, channel)
     ns.P("Sent " .. sent .. " line(s) to " .. channel:lower() .. ".")
 end
 
+-- Whisper each recipient their own assignment line. `recipients` is a
+-- list of { name = "...", msg = "..." }. Gated to leader/assist.
+function BossTemplates.WhisperRecipients(recipients, label)
+    if ns.CanBroadcast and not ns.CanBroadcast() then
+        ns.P("|cFFFF8800Only the raid leader or an assistant can whisper assignments.|r")
+        return
+    end
+    if not recipients or #recipients == 0 then
+        ns.P("|cFF888888No " .. (label or "assignments") .. " to whisper.|r")
+        return
+    end
+    local n = 0
+    for _, r in ipairs(recipients) do
+        if r.name and r.msg and r.msg ~= "" then
+            -- SendChatMessage rejects the '|' escape char; strip it.
+            SendChatMessage((r.msg:gsub("|", "")), "WHISPER", nil, r.name)
+            n = n + 1
+        end
+    end
+    ns.P("Whispered " .. n .. " player(s) their " .. (label or "assignment") .. ".")
+end
+
 -- Print lines locally (debug / preview)
 function BossTemplates.DebugLines(lines)
     local channel = ns.BuffScan.GetAnnounceChannel() or "PREVIEW"
@@ -193,8 +215,10 @@ function BossTemplates.DebugLines(lines)
     end
 end
 
--- Show channel picker (right-click on Announce button)
-function BossTemplates.ShowChannelMenu(buildLinesFn)
+-- Show channel picker (right-click on Announce button). Pass an optional
+-- whisperFn to add a "Whisper each player" entry (used by the Assign tab
+-- to DM each person just their own line).
+function BossTemplates.ShowChannelMenu(buildLinesFn, whisperFn)
     local menu = {
         { text = "Announce to", isTitle = true },
     }
@@ -206,6 +230,9 @@ function BossTemplates.ShowChannelMenu(buildLinesFn)
         menu[#menu + 1] = { text = "Party", func = function() BossTemplates.SendLines(buildLinesFn(), "PARTY") end }
     end
     menu[#menu + 1] = { text = "Say", func = function() BossTemplates.SendLines(buildLinesFn(), "SAY") end }
+    if whisperFn then
+        menu[#menu + 1] = { text = "Whisper each player", func = function() whisperFn() end }
+    end
     menu[#menu + 1] = { text = "Preview locally (only you)", func = function() BossTemplates.DebugLines(buildLinesFn()) end }
     ns.ShowContextMenu(menu, "cursor", 0, 0)
 end
@@ -224,7 +251,7 @@ function BossTemplates.BuildAnnounceLines(bossKey)
     -- throttling. Avoid `|` (escape codes get rejected); names are
     -- uppercase for visibility since chat color codes don't pass through.
     local DIVIDER = "----------"
-    local lines = { "== " .. bossData.name .. " ==" }
+    local lines = { "== " .. (bossData.announceTitle or (bossData.name .. " - Assignments")) .. " ==" }
     for pIdx, phase in ipairs(bossData.phases) do
         if pIdx > 1 then lines[#lines + 1] = DIVIDER end
         local phaseTag = phase.label:gsub("Phase ", "P")  -- "Phase 1" -> "P1"
@@ -469,13 +496,17 @@ if ns.Comm then
             end
         end
 
-        -- CC mark assignments
-        if ns.db.ccMarks then
-            for iconIdx, rec in pairs(ns.db.ccMarks) do
-                if rec and (rec.caster or rec.detectedName) then
-                    ns.Comm.Whisper(target, "CC_SET",
-                        tostring(iconIdx), rec.caster or "", rec.detectedName or "")
-                    count = count + 1
+        -- Mark board (per-icon role assignments)
+        if ns.db.markBoard and ns.MarkBoard then
+            for iconIdx, rec in pairs(ns.db.markBoard) do
+                if type(rec) == "table" then
+                    for _, role in ipairs(ns.MarkBoard.ROLES) do
+                        if rec[role.key] and rec[role.key] ~= "" then
+                            ns.Comm.Whisper(target, "MARK_SET",
+                                tostring(iconIdx), role.key, rec[role.key])
+                            count = count + 1
+                        end
+                    end
                 end
             end
         end

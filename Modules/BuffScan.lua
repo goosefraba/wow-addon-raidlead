@@ -299,14 +299,25 @@ local ANNOUNCE_HEADERS = {
 }
 
 local function Send(msg, channel)
-    -- Debug mode: print locally instead of sending to chat
-    ns.P("|cFF88CCFF[" .. (channel or "?") .. "]|r " .. msg)
+    -- "PREVIEW" prints locally (only you); anything else is real chat.
+    -- SendChatMessage rejects the '|' escape char, so strip it.
+    if channel and channel ~= "PREVIEW" then
+        SendChatMessage((msg:gsub("|", "")), channel)
+    else
+        ns.P("|cFF88CCFF[preview]|r " .. msg)
+    end
 end
 
 function BuffScan.Announce(channel, mode)
     channel = channel or BuffScan.GetAnnounceChannel()
     if not channel then
         ns.P("You are not in a group or raid.")
+        return
+    end
+
+    -- Broadcasting to the group is leader/assist-gated (party: anyone).
+    if channel ~= "PREVIEW" and ns.CanBroadcast and not ns.CanBroadcast() then
+        ns.P("|cFFFF8800Only the raid leader or an assistant can announce to the group.|r")
         return
     end
 
@@ -448,5 +459,76 @@ function BuffScan.WhisperMissing(playerName)
         return
     end
     local msg = "[RaidLead] You are missing: " .. table.concat(missing, ", ")
-    ns.P("|cFF88CCFF[WHISPER \226\134\146 " .. playerName .. "]|r " .. msg)
+    SendChatMessage((msg:gsub("|", "")), "WHISPER", nil, playerName)
+    ns.P("Whispered " .. playerName .. ".")
+end
+
+----------------------------------------------------------------------
+-- Nudge: ping players missing consumables (flask / elixirs / food).
+-- These are the player's own responsibility, so we target them directly
+-- rather than spamming the whole raid.
+----------------------------------------------------------------------
+function BuffScan.BuildConsumableNudges()
+    local out = {}
+    for _, name in ipairs(BuffScan.scanSorted) do
+        local r = BuffScan.scanResults[name]
+        local missing = r and BuffScan.GetMissingConsumables(r) or {}
+        if #missing > 0 then
+            out[#out + 1] = { name = name, missing = missing }
+        end
+    end
+    return out
+end
+
+-- Whisper each player who is missing a consumable.
+function BuffScan.NudgeWhisper()
+    if ns.CanBroadcast and not ns.CanBroadcast() then
+        ns.P("|cFFFF8800Only the raid leader or an assistant can nudge the group.|r")
+        return
+    end
+    if #BuffScan.scanSorted == 0 then
+        ns.P("No scan data. Use /rl scan first.")
+        return
+    end
+    local nudges = BuffScan.BuildConsumableNudges()
+    if #nudges == 0 then
+        ns.P("|cFF66CC66Everyone has their consumables.|r")
+        return
+    end
+    for _, n in ipairs(nudges) do
+        local msg = "[RaidLead] Before pull, please grab: " .. table.concat(n.missing, ", ")
+        SendChatMessage((msg:gsub("|", "")), "WHISPER", nil, n.name)
+    end
+    ns.P("Nudged " .. #nudges .. " player(s) about missing consumables.")
+end
+
+-- Post a single grouped consumable reminder to raid/party chat.
+function BuffScan.NudgeCallout(channel)
+    if ns.CanBroadcast and not ns.CanBroadcast() then
+        ns.P("|cFFFF8800Only the raid leader or an assistant can nudge the group.|r")
+        return
+    end
+    channel = channel or BuffScan.GetAnnounceChannel()
+    if not channel then ns.P("You are not in a group or raid."); return end
+    if #BuffScan.scanSorted == 0 then ns.P("No scan data. Use /rl scan first."); return end
+
+    local cat = {}
+    for _, name in ipairs(BuffScan.scanSorted) do
+        local r = BuffScan.scanResults[name]
+        for _, label in ipairs(r and BuffScan.GetMissingConsumables(r) or {}) do
+            cat[label] = cat[label] or {}
+            cat[label][#cat[label] + 1] = name
+        end
+    end
+
+    local lines = {}
+    for _, label in ipairs(BuffScan.CONSUMABLE_LABELS) do
+        if cat[label] then
+            lines[#lines + 1] = "Missing " .. label .. ": " .. table.concat(cat[label], ", ")
+        end
+    end
+    if #lines == 0 then ns.P("|cFF66CC66Everyone has their consumables.|r"); return end
+
+    table.insert(lines, 1, "[RaidLead] Consumable reminder:")
+    ns.BossTemplates.SendLines(lines, channel)
 end

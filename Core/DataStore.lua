@@ -15,8 +15,11 @@ ns.SETTINGS_DEFAULTS = {
     bossLocked     = true,        -- protect boss configs from accidental changes
     -- Compact view options
     compactAlpha           = 0.92,  -- 0.3 .. 1.0 transparency in compact mode
+    compactBorder          = true,  -- draw a border around the compact panel
     compactShowBoss        = true,
+    compactShowMarks       = false,
     compactShowHealers     = false,
+    compactShowCooldowns   = false,
     compactShowMisdirects  = false,
 }
 
@@ -71,6 +74,14 @@ function ns.InitDB()
     -- Custom poll questions (lead-managed). Each entry:
     --   { question = "...", options = { "A", "B", ... }, multi = false }
     if not ns.db.customPolls then ns.db.customPolls = {} end
+
+    -- Generic mark board: per raid icon, a player per role (tank/cc/...).
+    if not ns.db.markBoard then ns.db.markBoard = {} end
+
+    -- Sticky assignment memory keyed by mob name:
+    --   ns.db.markMemory["Fel Handler"] = { tank="X", cc="Y", ... }
+    -- so a detected mob auto-prefills its remembered assignees.
+    if not ns.db.markMemory then ns.db.markMemory = {} end
 
     -- Past poll results, kept locally for whoever ran the poll (never
     -- broadcast). Each entry: { question, options = {...}, multi, counts =

@@ -59,7 +59,6 @@ local function EnsureDB()
     end
     if not ns.db then return false end
     if not ns.db.cooldowns then ns.db.cooldowns = {} end  -- [cdKey] = { caster, target }
-    if not ns.db.ccMarks then ns.db.ccMarks = {} end      -- [iconIdx] = { caster, detectedName }
     return true
 end
 CooldownAssign.EnsureDB = EnsureDB
@@ -102,68 +101,6 @@ function CooldownAssign.ClearAllCDs()
 end
 
 ----------------------------------------------------------------------
--- CC mark CRUD
-----------------------------------------------------------------------
-function CooldownAssign.GetCC(iconIdx)
-    if not EnsureDB() then return nil end
-    return ns.db.ccMarks[iconIdx]
-end
-
-function CooldownAssign.SetCC(iconIdx, caster, detectedName)
-    if not EnsureDB() then return end
-    if not iconIdx then return end
-    if caster == "" then caster = nil end
-    if detectedName == "" then detectedName = nil end
-
-    local existing = ns.db.ccMarks[iconIdx] or {}
-    -- Preserve detected name if caller doesn't pass a new one
-    detectedName = detectedName or existing.detectedName
-
-    if not caster and not detectedName then
-        ns.db.ccMarks[iconIdx] = nil
-    else
-        ns.db.ccMarks[iconIdx] = { caster = caster, detectedName = detectedName }
-    end
-
-    ns.D("CooldownAssign.SetCC icon=" .. iconIdx
-        .. " caster=" .. tostring(caster) .. " detected=" .. tostring(detectedName))
-
-    if not CooldownAssign._suppressBroadcast and ns.Comm then
-        ns.Comm.Send("CC_SET", tostring(iconIdx), caster or "", detectedName or "")
-    end
-end
-
-function CooldownAssign.ClearAllCC()
-    if not EnsureDB() then return end
-    ns.db.ccMarks = {}
-    ns.P("Cleared all CC assignments.")
-    if not CooldownAssign._suppressBroadcast and ns.Comm then
-        ns.Comm.Send("CC_CLEAR")
-    end
-end
-
--- Run a fresh ScanMarkedMobs and update the detected-name field of
--- every populated icon. Existing caster assignments are preserved.
--- Returns: count of icons that now have a detected mob.
-function CooldownAssign.ScanAndUpdate()
-    if not EnsureDB() then return 0 end
-    if not ns.ScanMarkedMobs then return 0 end
-    local ok, detected = pcall(ns.ScanMarkedMobs)
-    if not ok or type(detected) ~= "table" then return 0 end
-
-    local found = 0
-    for iconIdx = 1, 8 do
-        local info = detected[iconIdx]
-        if info and info.name then
-            CooldownAssign.SetCC(iconIdx, ns.db.ccMarks[iconIdx]
-                and ns.db.ccMarks[iconIdx].caster or nil, info.name)
-            found = found + 1
-        end
-    end
-    return found
-end
-
-----------------------------------------------------------------------
 -- Build announce lines (for the Announce buttons in each view)
 ----------------------------------------------------------------------
 local function isBulkSync(channel) return channel == "WHISPER" end
@@ -187,21 +124,48 @@ function CooldownAssign.BuildCooldownLines()
     return lines
 end
 
-function CooldownAssign.BuildCCLines()
-    if not EnsureDB() then return { "(no CC set)" } end
-    local lines = { "== Crowd Control ==" }
-    local any = false
-    for iconIdx = 1, 8 do
-        local rec = ns.db.ccMarks[iconIdx]
+-- Compact one-line-per-cooldown view for the live overlay.
+function CooldownAssign.BuildCompactText()
+    if not EnsureDB() then return "" end
+    local lines = {}
+    for _, cd in ipairs(CooldownAssign.COOLDOWNS) do
+        local rec = ns.db.cooldowns[cd.key]
         if rec and rec.caster then
-            local iconStr = ns.GetRaidIconText and ns.GetRaidIconText(iconIdx) or ""
-            local mob = rec.detectedName and (" (" .. rec.detectedName .. ")") or ""
-            lines[#lines + 1] = iconStr .. " " .. rec.caster .. mob
-            any = true
+            local who = rec.caster
+            if cd.needsTarget and rec.target then who = who .. " > " .. rec.target end
+            lines[#lines + 1] = cd.label .. ": " .. who
         end
     end
-    if not any then lines[#lines + 1] = "(none configured)" end
-    return lines
+    return table.concat(lines, "\n")
+end
+
+----------------------------------------------------------------------
+-- Per-player whisper builders (one combined message per recipient).
+----------------------------------------------------------------------
+function CooldownAssign.BuildCooldownWhispers()
+    if not EnsureDB() then return {} end
+    local byName, order = {}, {}
+    local function add(name, part)
+        if not name or name == "" then return end
+        if not byName[name] then byName[name] = {}; order[#order + 1] = name end
+        byName[name][#byName[name] + 1] = part
+    end
+    for _, cd in ipairs(CooldownAssign.COOLDOWNS) do
+        local rec = ns.db.cooldowns[cd.key]
+        if rec and rec.caster then
+            local part = cd.label
+            if cd.needsTarget and rec.target then part = part .. " on " .. rec.target end
+            add(rec.caster, part)
+        end
+    end
+    local out = {}
+    for _, name in ipairs(order) do
+        out[#out + 1] = {
+            name = name,
+            msg  = "[RaidLead] Cooldown: " .. table.concat(byName[name], "; "),
+        }
+    end
+    return out
 end
 
 ----------------------------------------------------------------------
@@ -235,32 +199,6 @@ if ns.Comm then
         if ns.RefreshCooldownsView then ns.RefreshCooldownsView() end
     end)
 
-    ns.Comm.RegisterHandler("CC_SET", function(parts, sender, channel)
-        local iconIdx = tonumber(parts[2])
-        local caster  = parts[3]
-        local detected = parts[4]
-        if not iconIdx then return end
-
-        CooldownAssign._suppressBroadcast = true
-        CooldownAssign.SetCC(iconIdx, caster, detected)
-        CooldownAssign._suppressBroadcast = false
-
-        if not isBulkSync(channel) then
-            ns.P("|cFF88CCFF[sync]|r " .. (sender or "?") .. " set CC icon " .. iconIdx)
-        end
-        if ns.RefreshCcView then ns.RefreshCcView() end
-    end)
-
-    ns.Comm.RegisterHandler("CC_CLEAR", function(parts, sender, channel)
-        CooldownAssign._suppressBroadcast = true
-        CooldownAssign.ClearAllCC()
-        CooldownAssign._suppressBroadcast = false
-
-        if not isBulkSync(channel) then
-            ns.P("|cFF88CCFF[sync]|r " .. (sender or "?") .. " cleared CC assignments.")
-        end
-        if ns.RefreshCcView then ns.RefreshCcView() end
-    end)
 end
 
 ----------------------------------------------------------------------

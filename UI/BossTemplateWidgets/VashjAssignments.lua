@@ -93,7 +93,7 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     end
 
     local function BuildAnnounceLines()
-        local lines = { "== " .. bossData.name .. " ==" }
+        local lines = { "== " .. bossData.name .. " - Cores & Elementals ==" }
         for _, role in ipairs(bossData.roles) do
             local name = ns.BossTemplates.GetAssignment(BOSS_KEY, role.key, PHASE_KEY, 1) or "?"
             lines[#lines + 1] = role.label .. ": " .. name

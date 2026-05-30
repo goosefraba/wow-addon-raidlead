@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------
--- RaidLead — UI/HealAssignFrame.lua
+-- RaidLead â€” UI/HealAssignFrame.lua
 -- "Assign" tab: raid-assignment hub with sub-views switchable via pills.
 --   1) "Assignments" - global healer assignments + hunter Misdirect
 --   2) "Cooldowns"   - raid cooldown caster/target assignments
@@ -38,14 +38,9 @@ cooldownsBtn:SetWidth(90)
 cooldownsBtn:SetPoint("LEFT", assignmentsBtn, "RIGHT", 4, 0)
 cooldownsBtn:SetScript("OnClick", function() if SetRolesViewMode then SetRolesViewMode("cooldowns") end end)
 
-local ccBtn = ns.MakePill(toggleRow, "CC")
-ccBtn:SetWidth(50)
-ccBtn:SetPoint("LEFT", cooldownsBtn, "RIGHT", 4, 0)
-ccBtn:SetScript("OnClick", function() if SetRolesViewMode then SetRolesViewMode("cc") end end)
-
 local rosterBtn = ns.MakePill(toggleRow, "Roster")
 rosterBtn:SetWidth(72)
-rosterBtn:SetPoint("LEFT", ccBtn, "RIGHT", 4, 0)
+rosterBtn:SetPoint("LEFT", cooldownsBtn, "RIGHT", 4, 0)
 rosterBtn:SetScript("OnClick", function() if SetRolesViewMode then SetRolesViewMode("roster") end end)
 
 ----------------------------------------------------------------------
@@ -752,7 +747,9 @@ cdAnnounceBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 cdAnnounceBtn:SetScript("OnClick", function(self, button)
     local function GetLines() return ns.CooldownAssign.BuildCooldownLines() end
     if button == "RightButton" then
-        ns.BossTemplates.ShowChannelMenu(GetLines)
+        ns.BossTemplates.ShowChannelMenu(GetLines, function()
+            ns.BossTemplates.WhisperRecipients(ns.CooldownAssign.BuildCooldownWhispers(), "cooldown")
+        end)
     else
         ns.BossTemplates.SendLines(GetLines())
     end
@@ -808,149 +805,6 @@ local function RefreshCooldowns()
 end
 ns.RefreshCooldownsView = RefreshCooldowns
 
-----------------------------------------------------------------------
--- CC view: per-raid-icon crowd-control caster assignments
-----------------------------------------------------------------------
-local ccContainer = CreateFrame("Frame", nil, healContent)
-ccContainer:SetPoint("TOPLEFT",     healContent, "TOPLEFT",     0,  -26)
-ccContainer:SetPoint("BOTTOMRIGHT", healContent, "BOTTOMRIGHT", -20, 4)
-ccContainer:Hide()
-
-local ccScanBtn = ns.MakeSmallButton(ccContainer, "Scan Marks", 110, 22)
-ccScanBtn:SetPoint("TOPLEFT", ccContainer, "TOPLEFT", 0, 0)
-ccScanBtn:HookScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine("Scan Marked Mobs", 1, 0.82, 0)
-    GameTooltip:AddLine("Checks raid targets for marked mobs and fills in their names.", 0.8, 0.8, 0.8, true)
-    GameTooltip:Show()
-end)
-ccScanBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
-
-local ccHint = ccContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-ccHint:SetPoint("LEFT", ccScanBtn, "RIGHT", 8, 0)
-ccHint:SetPoint("RIGHT", ccContainer, "RIGHT", -4, 0)
-ccHint:SetJustifyH("LEFT")
-ccHint:SetText("Mark mobs in-game with raid icons, then click Scan.")
-ccHint:SetTextColor(0.6, 0.6, 0.6)
-
-local CC_ROW_H = 28
-local ccRows = {}  -- [iconIdx] = { row, detectedLabel, casterDD }
-
-local function CreateCcRow(iconIdx)
-    local row = CreateFrame("Frame", nil, ccContainer)
-    row:SetHeight(CC_ROW_H)
-    row:SetPoint("TOPLEFT", ccContainer, "TOPLEFT", 4,  -28 - (iconIdx - 1) * CC_ROW_H)
-    row:SetPoint("RIGHT",   ccContainer, "RIGHT",   -4, 0)
-
-    -- Icon texture
-    local iconFrame = CreateFrame("Frame", nil, row)
-    iconFrame:SetSize(24, 24)
-    iconFrame:SetPoint("LEFT", row, "LEFT", 0, 0)
-    iconFrame:EnableMouse(true)
-    local tex = iconFrame:CreateTexture(nil, "ARTWORK")
-    tex:SetAllPoints()
-    if ns.GetRaidIconTexture then
-        tex:SetTexture(ns.GetRaidIconTexture(iconIdx))
-    end
-    iconFrame:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        local name = (ns.RAID_ICON_NAMES and ns.RAID_ICON_NAMES[iconIdx])
-            or ("Icon " .. iconIdx)
-        GameTooltip:AddLine(name, 1, 1, 1)
-        GameTooltip:Show()
-    end)
-    iconFrame:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-    -- Detected mob name label
-    local detected = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    detected:SetPoint("LEFT", iconFrame, "RIGHT", 6, 0)
-    detected:SetWidth(160)
-    detected:SetJustifyH("LEFT")
-    detected:SetWordWrap(false)
-    detected:SetText("|cFF666666(not detected)|r")
-
-    -- CC caster dropdown
-    local casterDD = ns.CreatePlayerDropdown(row, 160, function(playerName)
-        ns.CooldownAssign.SetCC(iconIdx, playerName, nil)
-    end)
-    casterDD.respectLock = true
-    casterDD:SetPoint("LEFT", detected, "RIGHT", 6, 0)
-
-    ccRows[iconIdx] = {
-        row      = row,
-        detected = detected,
-        casterDD = casterDD,
-    }
-    return row
-end
-
-for i = 1, 8 do CreateCcRow(i) end
-
--- Bottom buttons for CC view
-local ccAnnounceBtn = ns.MakeSmallButton(ccContainer, "Announce", 110, 24)
-ccAnnounceBtn:SetPoint("BOTTOMLEFT", ccContainer, "BOTTOMLEFT", 0, 4)
-ccAnnounceBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-ccAnnounceBtn:SetScript("OnClick", function(self, button)
-    local function GetLines() return ns.CooldownAssign.BuildCCLines() end
-    if button == "RightButton" then
-        ns.BossTemplates.ShowChannelMenu(GetLines)
-    else
-        ns.BossTemplates.SendLines(GetLines())
-    end
-end)
-ccAnnounceBtn:HookScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine("Announce", 1, 0.82, 0.1)
-    GameTooltip:AddLine("Left-click: send to raid/party (auto)", 0.8, 0.8, 0.8)
-    GameTooltip:AddLine("Right-click: pick channel or preview locally", 0.8, 0.8, 0.8)
-    GameTooltip:Show()
-end)
-ccAnnounceBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
-
-local ccClearBtn = ns.MakeSmallButton(ccContainer, "Clear All", 80, 24)
-ccClearBtn:SetPoint("LEFT", ccAnnounceBtn, "RIGHT", 6, 0)
-ccClearBtn:SetScript("OnClick", function()
-    if ns.CooldownAssign.IsLocked() then
-        ns.LockedNotice()
-        return
-    end
-    ns.CooldownAssign.ClearAllCC()
-    if ns.RefreshCcView then ns.RefreshCcView() end
-end)
-
-local function RefreshCc()
-    if not ns.CooldownAssign then return end
-    for i = 1, 8 do
-        local r = ccRows[i]
-        if r then
-            local rec = ns.CooldownAssign.GetCC(i) or {}
-            if rec.detectedName and rec.detectedName ~= "" then
-                r.detected:SetText("|cFF88CCFF" .. rec.detectedName .. "|r")
-            else
-                r.detected:SetText("|cFF666666(not detected)|r")
-            end
-            if rec.caster then
-                local class = "UNKNOWN"
-                if ns.BuffScan and ns.BuffScan.scanResults
-                    and ns.BuffScan.scanResults[rec.caster] then
-                    class = ns.BuffScan.scanResults[rec.caster].class or "UNKNOWN"
-                end
-                r.casterDD:SetSelectedPlayer(rec.caster, class)
-            else
-                r.casterDD:SetSelectedPlayer(nil, nil)
-            end
-        end
-    end
-end
-ns.RefreshCcView = RefreshCc
-
-ccScanBtn:SetScript("OnClick", function()
-    local count = ns.CooldownAssign.ScanAndUpdate() or 0
-    RefreshCc()
-    if count == 0 then
-        ns.P("|cFF888888No marked mobs detected. Make sure someone targets the marked mobs.|r")
-    end
-end)
 
 ----------------------------------------------------------------------
 -- Bottom buttons: Announce + Clear
@@ -960,7 +814,9 @@ announceBtn:SetPoint("BOTTOMLEFT", healContent, "BOTTOMLEFT", 0, 4)
 announceBtn:SetScript("OnClick", function(self, button)
     local function GetLines() return ns.HealAssign.BuildAnnounceLines() end
     if button == "RightButton" then
-        ns.BossTemplates.ShowChannelMenu(GetLines)
+        ns.BossTemplates.ShowChannelMenu(GetLines, function()
+            ns.BossTemplates.WhisperRecipients(ns.HealAssign.BuildWhispers(), "heal assignment")
+        end)
     else
         ns.BossTemplates.SendLines(GetLines())
     end
@@ -1015,7 +871,6 @@ SetRolesViewMode = function(mode)
     viewMode = mode
     local showAssign    = (mode == "assignments")
     local showCooldowns = (mode == "cooldowns")
-    local showCc        = (mode == "cc")
     local showRoster    = (mode == "roster")
 
     -- Assignments-view frames
@@ -1029,13 +884,11 @@ SetRolesViewMode = function(mode)
 
     -- Other-view containers
     cooldownsContainer:SetShown(showCooldowns)
-    ccContainer:SetShown(showCc)
     rosterContainer:SetShown(showRoster)
 
     -- Button styling
     StyleToggle(assignmentsBtn, showAssign)
     StyleToggle(cooldownsBtn,   showCooldowns)
-    StyleToggle(ccBtn,          showCc)
     StyleToggle(rosterBtn,      showRoster)
 
     -- Hint text
@@ -1043,8 +896,6 @@ SetRolesViewMode = function(mode)
         hint:SetText("Auto-detected by class. Set your own role in the Profile tab.")
     elseif showCooldowns then
         hint:SetText("Assign raid cooldowns. Caster + (target if applicable).")
-    elseif showCc then
-        hint:SetText("Crowd-control assignments per raid icon. Scan marks to auto-fill names.")
     else
         hint:SetText("Self-declared roles for everyone with RaidLead. Others show as Unknown.")
     end
@@ -1054,8 +905,6 @@ SetRolesViewMode = function(mode)
         RefreshHealAssign()
     elseif showCooldowns then
         RefreshCooldowns()
-    elseif showCc then
-        RefreshCc()
     elseif showRoster then
         RefreshRoster()
     end
@@ -1073,8 +922,6 @@ local function RefreshActiveRolesView()
         RefreshRoster()
     elseif viewMode == "cooldowns" then
         RefreshCooldowns()
-    elseif viewMode == "cc" then
-        RefreshCc()
     else
         RefreshHealAssign()
     end

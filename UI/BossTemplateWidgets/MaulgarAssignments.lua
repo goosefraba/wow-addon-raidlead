@@ -174,7 +174,7 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     -- Build announce lines (single-line, icon tokens for chat)
     --------------------------------------------------------------------
     local function BuildAnnounceLines()
-        local lines = { "== " .. bossData.name .. " ==" }
+        local lines = { "== " .. bossData.name .. " - Council Tanks ==" }
         for _, enemy in ipairs(bossData.enemies) do
             local tank = ns.BossTemplates.GetAssignment(BOSS_KEY, enemy.key, PHASE_KEY, 1) or "?"
             local iconStr = ns.GetRaidIconText and ns.GetRaidIconText(enemy.iconIdx) or ""

@@ -97,7 +97,7 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     end
 
     local function BuildAnnounceLines()
-        local lines = { "== " .. bossData.name .. " ==" }
+        local lines = { "== " .. bossData.name .. " - Phase Tanks ==" }
         for _, slot in ipairs(bossData.slots) do
             local tank = ns.BossTemplates.GetAssignment(BOSS_KEY, slot.key, PHASE_KEY, 1) or "?"
             lines[#lines + 1] = slot.label .. ": " .. tank

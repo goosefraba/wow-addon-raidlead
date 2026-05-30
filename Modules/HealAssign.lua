@@ -440,6 +440,47 @@ function HealAssign.BuildAnnounceLines()
 end
 
 ----------------------------------------------------------------------
+-- Per-player whisper lines: heal duty + Earth Shield + Misdirect, one
+-- combined message per recipient. Returns { { name, msg }, ... }.
+----------------------------------------------------------------------
+function HealAssign.BuildWhispers()
+    local byName, order = {}, {}
+    local function add(name, part)
+        if not name or name == "" then return end
+        if not byName[name] then byName[name] = {}; order[#order + 1] = name end
+        byName[name][#byName[name] + 1] = part
+    end
+
+    for _, h in ipairs(HealAssign.GetHealers()) do
+        local cfg = HealAssign.GetConfig(h.name) or { mode = "cross" }
+        if cfg.mode == "dedicated" and cfg.target then
+            add(h.name, "heal " .. cfg.target)
+        elseif cfg.mode == "cross" then
+            add(h.name, "cross-heal")
+        end
+        if h.class == "SHAMAN" and cfg.mode ~= "none" and cfg.earthShield then
+            add(h.name, "Earth Shield on " .. cfg.earthShield)
+        end
+    end
+
+    if ns.db and ns.db.misdirects then
+        for _, h in ipairs(HealAssign.GetHunters()) do
+            local target = ns.db.misdirects[h.name]
+            if target then add(h.name, "Misdirect to " .. target) end
+        end
+    end
+
+    local out = {}
+    for _, name in ipairs(order) do
+        out[#out + 1] = {
+            name = name,
+            msg  = "[RaidLead] Your assignment: " .. table.concat(byName[name], "; "),
+        }
+    end
+    return out
+end
+
+----------------------------------------------------------------------
 -- Compact view text builders (used by the compact / live view)
 ----------------------------------------------------------------------
 local function CompactHealerName(name, classKey)

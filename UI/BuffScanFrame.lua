@@ -18,11 +18,28 @@ gridContent:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -10, 42)
 gridContent:Hide()
 
 ----------------------------------------------------------------------
--- Missing tab content frame
+-- Sub-view toggle: Grid (matrix) vs Missing (summary). Both live under
+-- the single "Grid" tab.
 ----------------------------------------------------------------------
-local missingContent = CreateFrame("Frame", nil, f)
-missingContent:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -68)
-missingContent:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -10, 42)
+local SetBuffSubView  -- forward decl
+local buffSubMode = "grid"
+
+local gridBtn = ns.MakePill(gridContent, "Grid")
+gridBtn:SetWidth(64)
+gridBtn:SetPoint("TOPLEFT", gridContent, "TOPLEFT", 0, 0)
+gridBtn:SetScript("OnClick", function() if SetBuffSubView then SetBuffSubView("grid") end end)
+
+local missingBtn = ns.MakePill(gridContent, "Missing")
+missingBtn:SetWidth(72)
+missingBtn:SetPoint("LEFT", gridBtn, "RIGHT", 4, 0)
+missingBtn:SetScript("OnClick", function() if SetBuffSubView then SetBuffSubView("missing") end end)
+
+----------------------------------------------------------------------
+-- Missing sub-view content (parented under the Grid tab, below the toggle)
+----------------------------------------------------------------------
+local missingContent = CreateFrame("Frame", nil, gridContent)
+missingContent:SetPoint("TOPLEFT", gridContent, "TOPLEFT", 0, -24)
+missingContent:SetPoint("BOTTOMRIGHT", gridContent, "BOTTOMRIGHT", 0, 0)
 missingContent:Hide()
 
 ----------------------------------------------------------------------
@@ -41,8 +58,8 @@ local COL_RAID_X  = COL_FOOD_X  + COL_FOOD_W  + 4
 ----------------------------------------------------------------------
 local headerBar = CreateFrame("Frame", nil, gridContent)
 headerBar:SetHeight(18)
-headerBar:SetPoint("TOPLEFT", gridContent, "TOPLEFT", 0, 0)
-headerBar:SetPoint("TOPRIGHT", gridContent, "TOPRIGHT", 0, 0)
+headerBar:SetPoint("TOPLEFT", gridContent, "TOPLEFT", 0, -24)
+headerBar:SetPoint("TOPRIGHT", gridContent, "TOPRIGHT", 0, -24)
 
 ns.MakeHeader(headerBar, "Name",          4,           COL_NAME_W)
 ns.MakeHeader(headerBar, "Flask/Elixir",  COL_FLASK_X, COL_FLASK_W)
@@ -549,7 +566,23 @@ missingScroll:SetScript("OnVerticalScroll", function(self, offset)
 end)
 
 ----------------------------------------------------------------------
--- Register tabs
+-- Sub-view switch + tab registration
 ----------------------------------------------------------------------
-ns.RegisterTab("Grid",    10, gridContent,    RefreshGridTab)
-ns.RegisterTab("Missing", 11, missingContent, RefreshMissingTab)
+SetBuffSubView = function(mode)
+    buffSubMode = (mode == "missing") and "missing" or "grid"
+    local showGrid = (buffSubMode == "grid")
+
+    headerBar:SetShown(showGrid)
+    gridScroll:SetShown(showGrid)
+    gridContentInner:SetShown(showGrid)
+    missingContent:SetShown(not showGrid)
+
+    if gridBtn.SetActive    then gridBtn:SetActive(showGrid) end
+    if missingBtn.SetActive then missingBtn:SetActive(not showGrid) end
+
+    if showGrid then RefreshGridTab() else RefreshMissingTab() end
+end
+ns.SetBuffSubView = SetBuffSubView
+
+-- One "Grid" tab; its refresh re-renders whichever sub-view is active.
+ns.RegisterTab("Grid", 10, gridContent, function() SetBuffSubView(buffSubMode) end)

@@ -32,9 +32,10 @@ ns.BossRegistry:Register("alar", {
 --   (P3 inherits P1 main-tank assignment - no separate phase)
 ----------------------------------------------------------------------
 ns.BossRegistry:Register("solarian", {
-    name         = "High Astromancer Solarian",
-    instance     = "Tempest Keep",
-    templateType = "phased_roles",
+    name          = "High Astromancer Solarian",
+    announceTitle = "Solarian - Split Targets & Tanks",
+    instance      = "Tempest Keep",
+    templateType  = "phased_roles",
     notes        = "P1: tank Solarian + 3 priests, AoE the 12 magi adds. P2: Solarian splits into 3 copies at NE/NW/S portals - assign focus per copy. P3: re-tank Solarian.",
     phases = {
         {
@@ -66,9 +67,10 @@ ns.BossRegistry:Register("solarian", {
 --   P4-5: Kael himself - too dynamic to template, just role notes
 ----------------------------------------------------------------------
 ns.BossRegistry:Register("kaelthas", {
-    name         = "Kael'thas Sunstrider",
-    instance     = "Tempest Keep",
-    templateType = "phased_roles",
+    name          = "Kael'thas Sunstrider",
+    announceTitle = "Kael'thas - Phase Assignments",
+    instance      = "Tempest Keep",
+    templateType  = "phased_roles",
     notes        = "P1: tank/handle each advisor in sequence. P2: 7 weapons - assign by class. P3: ghost advisors return briefly (P1 assignments apply). P4-5: Kael with Mind Control, Gravity Lapse, Pyroblast, Phoenixes.",
     phases = {
         {

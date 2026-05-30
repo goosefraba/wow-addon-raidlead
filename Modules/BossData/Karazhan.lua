@@ -5,9 +5,10 @@
 local ADDON_NAME, ns = ...
 
 ns.BossRegistry:Register("netherspite", {
-    name         = "Netherspite",
-    instance     = "Karazhan",
-    templateType = "portals",
+    name          = "Netherspite",
+    announceTitle = "Netherspite - Portal Beams",
+    instance      = "Karazhan",
+    templateType  = "portals",
     portals = {
         {
             key      = "red",
