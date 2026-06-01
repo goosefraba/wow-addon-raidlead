@@ -37,11 +37,7 @@ MarkBoard._suppressBroadcast = false
 -- Storage
 ----------------------------------------------------------------------
 local function EnsureDB()
-    if not ns.db then
-        if RaidLeadDB then ns.db = RaidLeadDB
-        elseif ns.InitDB then ns.InitDB() end
-    end
-    if not ns.db then return false end
+    if not ns.EnsureDB() then return false end
     if not ns.db.markBoard then ns.db.markBoard = {} end  -- [icon] = { mob, tank, cc, interrupt }
     return true
 end
@@ -252,33 +248,24 @@ end
 -- Per-recipient whisper list ({ name, msg }), combining multiple jobs.
 function MarkBoard.BuildWhispers()
     if not EnsureDB() then return {} end
-    local byName, order = {}, {}
-    local function add(name, part)
-        if not name or name == "" then return end
-        if not byName[name] then byName[name] = {}; order[#order + 1] = name end
-        byName[name][#byName[name] + 1] = part
-    end
+    local acc = ns.NewWhisperAccumulator()
     for icon = 1, 8 do
         local rec = ns.db.markBoard[icon]
         if rec then
             local iconName = (ns.RAID_ICON_NAMES and ns.RAID_ICON_NAMES[icon]) or ("icon " .. icon)
             local mob = rec.mob and (" (" .. rec.mob .. ")") or ""
             for _, r in ipairs(MarkBoard.ROLES) do
-                if rec[r.key] then add(rec[r.key], r.label .. " " .. iconName .. mob) end
+                if rec[r.key] then acc.add(rec[r.key], r.label .. " " .. iconName .. mob) end
             end
         end
     end
-    local out = {}
-    for _, name in ipairs(order) do
-        out[#out + 1] = { name = name, msg = "[RaidLead] You: " .. table.concat(byName[name], "; ") }
-    end
-    return out
+    return acc.build("[RaidLead] You: ")
 end
 
 ----------------------------------------------------------------------
 -- Comm handlers
 ----------------------------------------------------------------------
-local function isBulkSync(channel) return channel == "WHISPER" end
+local isBulkSync = ns.IsBulkSync
 
 if ns.Comm then
     ns.Comm.RegisterHandler("MARK_SET", function(parts, sender, channel)

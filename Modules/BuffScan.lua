@@ -21,6 +21,19 @@ ns.RAID_BUFF_ORDER = {
     "battleShout", "commandingShout", "trueshotAura",
 }
 
+-- Per-buff tracking. Untracked buffs are hidden from the grid and never
+-- flagged as missing. Defaults to tracked when no preference is stored.
+function ns.IsRaidBuffTracked(fk)
+    local t = ns.db and ns.db.raidBuffTracking
+    return not (t and t[fk] == false)
+end
+
+function ns.SetRaidBuffTracked(fk, tracked)
+    if not ns.db then return end
+    ns.db.raidBuffTracking = ns.db.raidBuffTracking or {}
+    ns.db.raidBuffTracking[fk] = tracked and true or false
+end
+
 ----------------------------------------------------------------------
 -- Scan state
 ----------------------------------------------------------------------
@@ -128,39 +141,6 @@ end
 ----------------------------------------------------------------------
 -- Missing buff checks
 ----------------------------------------------------------------------
-function BuffScan.GetMissing(r)
-    if not r or r.outOfRange or r.isDead or not r.isOnline then return {} end
-    local s = ns.db and ns.db.settings or ns.SETTINGS_DEFAULTS
-    local missing = {}
-    if s.trackFlasks then
-        if not r.hasFlask and not (r.hasBattle and r.hasGuardian) then
-            if not r.hasFlask and not r.hasBattle and not r.hasGuardian then
-                missing[#missing + 1] = "Flask/Elixirs"
-            elseif r.hasBattle and not r.hasGuardian then
-                missing[#missing + 1] = "Guardian Elixir"
-            elseif r.hasGuardian and not r.hasBattle then
-                missing[#missing + 1] = "Battle Elixir"
-            end
-        end
-    end
-    if s.trackFood then
-        if not r.hasFood then
-            missing[#missing + 1] = "Food"
-        end
-    end
-    if s.trackRaidBuffs then
-        for _, fk in ipairs(ns.RAID_BUFF_ORDER) do
-            if not r.raidBuffs[fk] then
-                local family = BD.raidBuffs[fk]
-                if family then
-                    missing[#missing + 1] = family.label
-                end
-            end
-        end
-    end
-    return missing
-end
-
 function BuffScan.GetMissingConsumables(r)
     if not r or r.outOfRange or r.isDead or not r.isOnline then return {} end
     local s = ns.db and ns.db.settings or ns.SETTINGS_DEFAULTS
@@ -186,13 +166,26 @@ end
 
 function BuffScan.GetMissingRaidBuffs(r)
     if not r or r.outOfRange or r.isDead or not r.isOnline then return {} end
+    local rb = r.raidBuffs or {}   -- guard: partial/comm records may lack it
     local missing = {}
     for _, fk in ipairs(ns.RAID_BUFF_ORDER) do
-        if not r.raidBuffs[fk] then
+        if ns.IsRaidBuffTracked(fk) and not rb[fk] then
             local family = BD.raidBuffs[fk]
             if family then
                 missing[#missing + 1] = family.label
             end
+        end
+    end
+    return missing
+end
+
+-- Combined missing list = consumables + raid buffs (honoring track* flags).
+function BuffScan.GetMissing(r)
+    local missing = BuffScan.GetMissingConsumables(r)
+    local s = ns.db and ns.db.settings or ns.SETTINGS_DEFAULTS
+    if s.trackRaidBuffs then
+        for _, label in ipairs(BuffScan.GetMissingRaidBuffs(r)) do
+            missing[#missing + 1] = label
         end
     end
     return missing

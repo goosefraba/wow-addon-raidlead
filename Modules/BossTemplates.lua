@@ -14,15 +14,7 @@ ns.BossTemplates = BossTemplates
 -- Returns the full assignment table for a boss, creating if needed
 -- Structure: [portalKey][phaseKey][slotIndex] = playerName
 function BossTemplates.EnsureDB()
-    if not ns.db then
-        if RaidLeadDB then
-            ns.db = RaidLeadDB
-        else
-            -- Force init if somehow missed
-            ns.InitDB()
-        end
-    end
-    if not ns.db then return false end
+    if not ns.EnsureDB() then return false end
     if not ns.db.bossTemplates then ns.db.bossTemplates = {} end
     return true
 end
@@ -312,7 +304,7 @@ end
 -- WHISPER = bulk sync reply, silence the chat notification (one line
 -- per assignment * dozens of assignments = screenfuls of spam after a
 -- /reload or zone change). RAID/PARTY = real-time edit, notify.
-local function isBulkSync(channel) return channel == "WHISPER" end
+local isBulkSync = ns.IsBulkSync
 
 local function RefreshAfterRemoteChange(changedBossKey, sender, summary, silent)
     -- Refresh ALL cached boss widgets, not just the active one. This way
@@ -401,11 +393,19 @@ if ns.Comm then
     -- Sync handshake
     ----------------------------------------------------------------------
 
-    -- Iterate local boss data and whisper it back to the requester
+    -- Iterate local boss data and whisper it back to the requester. We
+    -- QUEUE every message and drain a few per timer tick — a fully set-up
+    -- raid is 100+ entries, and firing them all in one frame overruns WoW's
+    -- addon-message rate limit (silently dropped -> lost sync).
+    local SYNC_BURST   = 4      -- messages per tick
+    local SYNC_INTERVAL = 0.10  -- seconds between ticks
+
     local function SendFullStateTo(target)
-        if not BossTemplates.EnsureDB() then return end
+        if not BossTemplates.EnsureDB() then return 0 end
         local data = ns.db.bossTemplates or {}
-        local count = 0
+
+        local queue = {}
+        local function q(...) queue[#queue + 1] = { ... } end
 
         for bossKey, bossEntry in pairs(data) do
             if type(bossEntry) == "table" then
@@ -416,9 +416,7 @@ if ns.Comm then
                             if type(slots) == "table" then
                                 for slotIdx, name in pairs(slots) do
                                     if name and name ~= "" then
-                                        ns.Comm.Whisper(target, "ASSIGN",
-                                            bossKey, portalKey, phaseKey, slotIdx, name)
-                                        count = count + 1
+                                        q("ASSIGN", bossKey, portalKey, phaseKey, slotIdx, name)
                                     end
                                 end
                             end
@@ -431,9 +429,7 @@ if ns.Comm then
                         if type(metaTbl) == "table" then
                             for metaKey, value in pairs(metaTbl) do
                                 if value ~= nil then
-                                    ns.Comm.Whisper(target, "META",
-                                        bossKey, key, metaKey, value)
-                                    count = count + 1
+                                    q("META", bossKey, key, metaKey, value)
                                 end
                             end
                         end
@@ -446,14 +442,10 @@ if ns.Comm then
         if ns.db.healers then
             for healerName, cfg in pairs(ns.db.healers) do
                 if type(cfg) == "table" and cfg.mode then
-                    ns.Comm.Whisper(target, "HEAL_SET",
-                        healerName, cfg.mode, cfg.target or "")
-                    count = count + 1
+                    q("HEAL_SET", healerName, cfg.mode, cfg.target or "")
                 end
                 if type(cfg) == "table" and cfg.earthShield then
-                    ns.Comm.Whisper(target, "HEAL_ES",
-                        healerName, cfg.earthShield)
-                    count = count + 1
+                    q("HEAL_ES", healerName, cfg.earthShield)
                 end
             end
         end
@@ -462,36 +454,30 @@ if ns.Comm then
         if ns.db.misdirects then
             for hunterName, mdTarget in pairs(ns.db.misdirects) do
                 if mdTarget and mdTarget ~= "" then
-                    ns.Comm.Whisper(target, "MD_SET", hunterName, mdTarget)
-                    count = count + 1
+                    q("MD_SET", hunterName, mdTarget)
                 end
             end
         end
 
-        -- Self-declared roles (only our own + anyone whose role we
-        -- learned over comm). Receivers store them via the ROLE_SET
-        -- handler in Modules/Roles.lua.
+        -- Self-declared roles
         if ns.db.roles then
             for playerName, role in pairs(ns.db.roles) do
                 if role and role ~= "" then
-                    ns.Comm.Whisper(target, "ROLE_SET", playerName, role)
-                    count = count + 1
+                    q("ROLE_SET", playerName, role)
                 end
             end
         end
 
         -- Our own addon version (so the requester can flag outdated peers)
         if ns.VERSION then
-            ns.Comm.Whisper(target, "VER", ns.VERSION)
-            count = count + 1
+            q("VER", ns.VERSION)
         end
 
         -- Cooldown assignments
         if ns.db.cooldowns then
             for cdKey, rec in pairs(ns.db.cooldowns) do
                 if rec and (rec.caster or rec.target) then
-                    ns.Comm.Whisper(target, "CD_SET", cdKey, rec.caster or "", rec.target or "")
-                    count = count + 1
+                    q("CD_SET", cdKey, rec.caster or "", rec.target or "")
                 end
             end
         end
@@ -502,16 +488,27 @@ if ns.Comm then
                 if type(rec) == "table" then
                     for _, role in ipairs(ns.MarkBoard.ROLES) do
                         if rec[role.key] and rec[role.key] ~= "" then
-                            ns.Comm.Whisper(target, "MARK_SET",
-                                tostring(iconIdx), role.key, rec[role.key])
-                            count = count + 1
+                            q("MARK_SET", tostring(iconIdx), role.key, rec[role.key])
                         end
                     end
                 end
             end
         end
 
-        return count
+        -- Drain the queue gradually.
+        local total, i = #queue, 1
+        local function pump()
+            for _ = 1, SYNC_BURST do
+                local msg = queue[i]
+                if not msg then return end
+                ns.Comm.Whisper(target, unpack(msg))
+                i = i + 1
+            end
+            if queue[i] then C_Timer.After(SYNC_INTERVAL, pump) end
+        end
+        pump()
+
+        return total
     end
 
     -- Throttle: don't respond to repeated requests too quickly

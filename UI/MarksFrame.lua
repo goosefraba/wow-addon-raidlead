@@ -212,11 +212,7 @@ RefreshMarks = function()
             local dd = row.dd[r.key]
             local who = rec[r.key]
             if who then
-                local class = "UNKNOWN"
-                if ns.BuffScan and ns.BuffScan.scanResults and ns.BuffScan.scanResults[who] then
-                    class = ns.BuffScan.scanResults[who].class or "UNKNOWN"
-                end
-                dd:SetSelectedPlayer(who, class)
+                dd:SetSelectedPlayer(who, ns.ClassOf(who))
             else
                 dd:SetSelectedPlayer(nil, nil)
             end

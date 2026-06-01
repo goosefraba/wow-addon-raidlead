@@ -29,15 +29,7 @@ HealAssign._suppressBroadcast = false
 -- Storage
 ----------------------------------------------------------------------
 local function EnsureDB()
-    if not ns.db then
-        -- Fallback init in case ADDON_LOADED hasn't run yet
-        if RaidLeadDB then
-            ns.db = RaidLeadDB
-        elseif ns.InitDB then
-            ns.InitDB()
-        end
-    end
-    if not ns.db then return false end
+    if not ns.EnsureDB() then return false end
     if not ns.db.healers then ns.db.healers = {} end
     return true
 end
@@ -121,11 +113,7 @@ end
 -- Hunter Misdirect (global hunter -> tank assignment)
 ----------------------------------------------------------------------
 local function EnsureMisdirectDB()
-    if not ns.db then
-        if RaidLeadDB then ns.db = RaidLeadDB
-        elseif ns.InitDB then ns.InitDB() end
-    end
-    if not ns.db then return false end
+    if not ns.EnsureDB() then return false end
     if not ns.db.misdirects then ns.db.misdirects = {} end
     return true
 end
@@ -444,40 +432,28 @@ end
 -- combined message per recipient. Returns { { name, msg }, ... }.
 ----------------------------------------------------------------------
 function HealAssign.BuildWhispers()
-    local byName, order = {}, {}
-    local function add(name, part)
-        if not name or name == "" then return end
-        if not byName[name] then byName[name] = {}; order[#order + 1] = name end
-        byName[name][#byName[name] + 1] = part
-    end
+    local acc = ns.NewWhisperAccumulator()
 
     for _, h in ipairs(HealAssign.GetHealers()) do
         local cfg = HealAssign.GetConfig(h.name) or { mode = "cross" }
         if cfg.mode == "dedicated" and cfg.target then
-            add(h.name, "heal " .. cfg.target)
+            acc.add(h.name, "heal " .. cfg.target)
         elseif cfg.mode == "cross" then
-            add(h.name, "cross-heal")
+            acc.add(h.name, "cross-heal")
         end
         if h.class == "SHAMAN" and cfg.mode ~= "none" and cfg.earthShield then
-            add(h.name, "Earth Shield on " .. cfg.earthShield)
+            acc.add(h.name, "Earth Shield on " .. cfg.earthShield)
         end
     end
 
     if ns.db and ns.db.misdirects then
         for _, h in ipairs(HealAssign.GetHunters()) do
             local target = ns.db.misdirects[h.name]
-            if target then add(h.name, "Misdirect to " .. target) end
+            if target then acc.add(h.name, "Misdirect to " .. target) end
         end
     end
 
-    local out = {}
-    for _, name in ipairs(order) do
-        out[#out + 1] = {
-            name = name,
-            msg  = "[RaidLead] Your assignment: " .. table.concat(byName[name], "; "),
-        }
-    end
-    return out
+    return acc.build("[RaidLead] Your assignment: ")
 end
 
 ----------------------------------------------------------------------
@@ -563,7 +539,7 @@ end
 if ns.Comm then
     -- WHISPER = bulk sync reply, no chat output (would spam dozens of lines
     -- after a /reload or zone change). RAID/PARTY = real-time change, notify.
-    local function isBulkSync(channel) return channel == "WHISPER" end
+    local isBulkSync = ns.IsBulkSync
 
     ns.Comm.RegisterHandler("HEAL_SET", function(parts, sender, channel)
         local healerName = parts[2]

@@ -61,13 +61,7 @@ healHeader:SetPoint("TOPLEFT", healContent, "TOPLEFT", 0, -22)
 healHeader:SetPoint("RIGHT", healContent, "RIGHT", -4, 0)
 
 -- Look up RGB for class color
-local function ClassColorRGB(class)
-    local hex = ns.CLASS_COLORS[(class or ""):upper()] or "AAAAAA"
-    local r = tonumber(hex:sub(1, 2), 16) / 255
-    local g = tonumber(hex:sub(3, 4), 16) / 255
-    local b = tonumber(hex:sub(5, 6), 16) / 255
-    return r, g, b
-end
+local ClassColorRGB = ns.ClassColorRGB
 
 ----------------------------------------------------------------------
 -- Reserve bottom area for: Misdirect section (~150) + buttons (~36)

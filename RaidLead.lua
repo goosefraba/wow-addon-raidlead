@@ -14,6 +14,10 @@ SLASH_RAIDLEAD2 = "/rl"
 SlashCmdList["RAIDLEAD"] = function(msg)
     msg = (msg or ""):trim()
     local f = ns.mainFrame
+    if not f then
+        ns.P("|cFFFF4444RaidLead UI failed to load.|r Check for a Lua error on login and /reload.")
+        return
+    end
 
     -- No args: toggle panel
     if msg == "" then

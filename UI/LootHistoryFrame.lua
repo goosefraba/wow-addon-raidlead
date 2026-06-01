@@ -15,13 +15,7 @@ histContent:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -10, 10)
 histContent:Hide()
 
 -- Local class-color RGB helper
-local function ClassColorRGB(class)
-    local hex = ns.CLASS_COLORS[(class or ""):upper()] or "AAAAAA"
-    local r = tonumber(hex:sub(1, 2), 16) / 255
-    local g = tonumber(hex:sub(3, 4), 16) / 255
-    local b = tonumber(hex:sub(5, 6), 16) / 255
-    return r, g, b
-end
+local ClassColorRGB = ns.ClassColorRGB
 
 -- Lookup a player's class from cached scan data (best-effort)
 local function ClassFor(playerName)

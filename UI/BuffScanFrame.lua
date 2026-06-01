@@ -34,6 +34,24 @@ missingBtn:SetWidth(72)
 missingBtn:SetPoint("LEFT", gridBtn, "RIGHT", 4, 0)
 missingBtn:SetScript("OnClick", function() if SetBuffSubView then SetBuffSubView("missing") end end)
 
+-- Gear: opens the raid-buff picker (choose which buffs the grid shows).
+local gearBtn = CreateFrame("Button", nil, gridContent)
+gearBtn:SetSize(20, 20)
+gearBtn:SetPoint("TOPRIGHT", gridContent, "TOPRIGHT", -2, 1)
+gearBtn:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
+gearBtn:SetHighlightTexture("Interface\\Buttons\\UI-OptionsButton")
+gearBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:AddLine("Choose raid buffs", 1, 0.82, 0.1)
+    GameTooltip:AddLine("Pick which raid buffs show in the grid and count as missing.",
+        0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+end)
+gearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+gearBtn:SetScript("OnClick", function()
+    if ns.ShowRaidBuffPicker then ns.ShowRaidBuffPicker() end
+end)
+
 ----------------------------------------------------------------------
 -- Missing sub-view content (parented under the Grid tab, below the toggle)
 ----------------------------------------------------------------------
@@ -65,18 +83,19 @@ ns.MakeHeader(headerBar, "Name",          4,           COL_NAME_W)
 ns.MakeHeader(headerBar, "Flask/Elixir",  COL_FLASK_X, COL_FLASK_W)
 ns.MakeHeader(headerBar, "Food",          COL_FOOD_X,  COL_FOOD_W)
 
--- Raid buff header icons
+-- Raid buff header icons. Stored by family key so column visibility can
+-- be re-laid-out when the player changes which buffs they track.
+local headerIcons = {}
 do
     local HDR_ICON = 14
-    local HDR_PAD  = 2
     for idx, fk in ipairs(ns.RAID_BUFF_ORDER) do
         local family = BD.raidBuffs[fk]
         if family then
             local hIcon = CreateFrame("Frame", nil, headerBar)
             hIcon:SetSize(HDR_ICON, HDR_ICON)
-            hIcon:SetPoint("TOPLEFT", headerBar, "TOPLEFT",
-                COL_RAID_X + (idx - 1) * (16 + HDR_PAD), -2)
+            hIcon:SetPoint("TOPLEFT", headerBar, "TOPLEFT", COL_RAID_X, -2)
             hIcon:EnableMouse(true)
+            headerIcons[fk] = hIcon
 
             local tex = hIcon:CreateTexture(nil, "ARTWORK")
             tex:SetAllPoints()
@@ -208,7 +227,7 @@ local function CreateGridRow(index)
                 GameTooltip:AddLine("Raid Buffs:", 1, 0.82, 0.1)
                 for _, fk in ipairs(ns.RAID_BUFF_ORDER) do
                     local family = BD.raidBuffs[fk]
-                    if family then
+                    if family and ns.IsRaidBuffTracked(fk) then
                         if r.raidBuffs[fk] then
                             GameTooltip:AddLine("  " .. family.label .. ": " .. (r.raidBuffNames[fk] or "Yes"), 0.4, 1, 0.4)
                         else
@@ -329,6 +348,39 @@ local YELLOW_HALF  = "|cFFFFCC00~|r"
 local GREY_Q       = "|cFF888888?|r"
 local GREY_DEAD    = "|cFF666666--|r"
 
+----------------------------------------------------------------------
+-- Raid-buff column layout. Tracked buffs are packed left-to-right by
+-- visible position (so unchecked buffs leave no gap); untracked ones are
+-- hidden. Applied to the header and every pooled grid row.
+----------------------------------------------------------------------
+local RAID_COL_STEP = 18  -- icon (16) + pad (2); header and rows share it
+
+local function LayoutRaidBuffIcons(iconMap, yOff)
+    local vis = 0
+    for _, fk in ipairs(ns.RAID_BUFF_ORDER) do
+        local ic = iconMap[fk]
+        if ic then
+            if ns.IsRaidBuffTracked(fk) then
+                ic:ClearAllPoints()
+                ic:SetPoint("TOPLEFT", ic:GetParent(), "TOPLEFT",
+                    COL_RAID_X + vis * RAID_COL_STEP, yOff)
+                ic:Show()
+                vis = vis + 1
+            else
+                ic:Hide()
+            end
+        end
+    end
+end
+
+local function RelayoutRaidBuffColumns()
+    LayoutRaidBuffIcons(headerIcons, -2)
+    for _, row in ipairs(gridRows) do
+        if row.raidIcons then LayoutRaidBuffIcons(row.raidIcons, -2) end
+    end
+end
+ns.RelayoutRaidBuffColumns = RelayoutRaidBuffColumns
+
 local function RefreshGridTab()
     local scanResults = BuffScan.scanResults
     local scanSorted  = BuffScan.scanSorted
@@ -429,6 +481,10 @@ local function RefreshGridTab()
     for i = visibleRows + 1, #gridRows do
         gridRows[i]:Hide()
     end
+
+    -- Keep raid-buff columns packed to the current tracked set (also lays
+    -- out any rows created lazily during this refresh).
+    RelayoutRaidBuffColumns()
 end
 ns.RefreshGridTab = RefreshGridTab
 
@@ -586,3 +642,115 @@ ns.SetBuffSubView = SetBuffSubView
 
 -- One "Grid" tab; its refresh re-renders whichever sub-view is active.
 ns.RegisterTab("Grid", 10, gridContent, function() SetBuffSubView(buffSubMode) end)
+
+----------------------------------------------------------------------
+-- Raid-buff picker modal (gear button). A checkbox per raid buff; changes
+-- apply live to the grid + missing math. Unchecked = hidden + not missing.
+----------------------------------------------------------------------
+local picker, pickerChecks
+
+local function ApplyBuffPickerChange()
+    RelayoutRaidBuffColumns()
+    SetBuffSubView(buffSubMode)   -- re-render whichever sub-view is showing
+end
+
+local function BuildBuffPicker()
+    if picker then return end
+
+    picker = CreateFrame("Frame", "RaidLeadRaidBuffPicker", UIParent)
+    picker:SetSize(360, 280)
+    picker:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
+    picker:SetFrameStrata("FULLSCREEN_DIALOG")
+    picker:SetFrameLevel(200)
+    picker:EnableMouse(true)
+    picker:SetMovable(true)
+    picker:RegisterForDrag("LeftButton")
+    picker:SetScript("OnDragStart", function(s) s:StartMoving() end)
+    picker:SetScript("OnDragStop",  function(s) s:StopMovingOrSizing() end)
+    picker:Hide()
+
+    ns.ApplyBackdrop(picker, ns.DIALOG_BACKDROP)
+    tinsert(UISpecialFrames, "RaidLeadRaidBuffPicker")
+
+    local closeBtn = CreateFrame("Button", nil, picker, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", picker, "TOPRIGHT", -2, -2)
+
+    local title = picker:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOP", picker, "TOP", 0, -14)
+    title:SetText("|cFFFFCC00Raid Buffs to Track|r")
+
+    local sub = picker:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sub:SetPoint("TOPLEFT",  picker, "TOPLEFT",  16, -38)
+    sub:SetPoint("TOPRIGHT", picker, "TOPRIGHT", -16, -38)
+    sub:SetJustifyH("CENTER")
+    sub:SetTextColor(0.7, 0.7, 0.7)
+    sub:SetText("Unchecked buffs are hidden from the grid and never flagged as missing.")
+
+    pickerChecks = {}
+    local COL_W, ROW_H   = 164, 26
+    local startX, startY = 16, -62
+    for idx, fk in ipairs(ns.RAID_BUFF_ORDER) do
+        local family = BD.raidBuffs[fk]
+        if family then
+            local col  = (idx - 1) % 2
+            local rowi = math.floor((idx - 1) / 2)
+            local x = startX + col * COL_W
+            local y = startY - rowi * ROW_H
+
+            local cb = CreateFrame("CheckButton", nil, picker, "UICheckButtonTemplate")
+            cb:SetSize(22, 22)
+            cb:SetPoint("TOPLEFT", picker, "TOPLEFT", x, y)
+
+            local icon = picker:CreateTexture(nil, "ARTWORK")
+            icon:SetSize(16, 16)
+            icon:SetPoint("LEFT", cb, "RIGHT", 2, 0)
+            icon:SetTexture(family.icon)
+            icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+            local lbl = picker:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            lbl:SetPoint("LEFT", icon, "RIGHT", 4, 0)
+            lbl:SetText(family.label .. "  |cFF888888"
+                .. family.class:sub(1,1) .. family.class:sub(2):lower() .. "|r")
+
+            cb.fk = fk
+            cb:SetScript("OnClick", function(self)
+                ns.SetRaidBuffTracked(self.fk, self:GetChecked() and true or false)
+                ApplyBuffPickerChange()
+            end)
+            pickerChecks[fk] = cb
+        end
+    end
+
+    local allBtn = ns.MakeSmallButton(picker, "All", 60, 22)
+    allBtn:SetPoint("BOTTOMLEFT", picker, "BOTTOMLEFT", 16, 14)
+    allBtn:SetScript("OnClick", function()
+        for fk, cb in pairs(pickerChecks) do
+            ns.SetRaidBuffTracked(fk, true); cb:SetChecked(true)
+        end
+        ApplyBuffPickerChange()
+    end)
+
+    local noneBtn = ns.MakeSmallButton(picker, "None", 60, 22)
+    noneBtn:SetPoint("LEFT", allBtn, "RIGHT", 6, 0)
+    noneBtn:SetScript("OnClick", function()
+        for fk, cb in pairs(pickerChecks) do
+            ns.SetRaidBuffTracked(fk, false); cb:SetChecked(false)
+        end
+        ApplyBuffPickerChange()
+    end)
+
+    local doneBtn = ns.MakeSmallButton(picker, "Done", 80, 22)
+    doneBtn:SetPoint("BOTTOMRIGHT", picker, "BOTTOMRIGHT", -16, 14)
+    doneBtn:SetScript("OnClick", function() picker:Hide() end)
+
+    local rows = math.ceil(#ns.RAID_BUFF_ORDER / 2)
+    picker:SetHeight(62 + rows * ROW_H + 46)
+end
+
+function ns.ShowRaidBuffPicker()
+    BuildBuffPicker()
+    for fk, cb in pairs(pickerChecks) do
+        cb:SetChecked(ns.IsRaidBuffTracked(fk))
+    end
+    picker:Show()
+end

@@ -12,11 +12,7 @@ ns.LootHistory = LootHistory
 -- DB helpers
 ----------------------------------------------------------------------
 local function EnsureDB()
-    if not ns.db then
-        if RaidLeadDB then ns.db = RaidLeadDB
-        elseif ns.InitDB then ns.InitDB() end
-    end
-    if not ns.db then return false end
+    if not ns.EnsureDB() then return false end
     if not ns.db.lootHistory then ns.db.lootHistory = { runs = {} } end
     if not ns.db.lootHistory.runs then ns.db.lootHistory.runs = {} end
     return true
@@ -175,7 +171,9 @@ function LootHistory.GetPerPlayerAttendance(filterInstanceMapId)
         if not filterInstanceMapId or run.instanceMapId == filterInstanceMapId then
             totalRuns = totalRuns + 1
             local ts = run.endTime or run.startTime or 0
-            for _, name in ipairs(run.attendees or {}) do
+            -- attendees is a name-keyed map ({ [name] = class }), so iterate
+            -- with pairs over its keys (ipairs would skip everything).
+            for name in pairs(run.attendees or {}) do
                 local t = totals[name]
                 if not t then
                     t = { runs = 0, lastSeen = 0 }

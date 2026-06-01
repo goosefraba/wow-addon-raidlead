@@ -88,6 +88,19 @@ function ns.InitDB()
     -- {...}, voterTotal, endedAt }. Newest first; capped in Modules/Polls.
     if not ns.db.pollHistory then ns.db.pollHistory = {} end
 
+    -- Per-raid-buff tracking toggles, keyed by family key (motw/fort/...).
+    -- Absent or true = tracked; false = hidden from the grid and never
+    -- flagged as missing. Defaults to all tracked.
+    if not ns.db.raidBuffTracking then ns.db.raidBuffTracking = {} end
+
+    -- Remembered state of the launcher's "chat voting" checkbox (lets
+    -- people without the addon vote by typing/whispering). Default on.
+    if ns.db.pollChatVoting == nil then ns.db.pollChatVoting = true end
+
+    -- Remembered state of the launcher's "auto-close after 30s" checkbox.
+    -- Off by default: polls stay open until the lead ends them manually.
+    if ns.db.pollAutoClose == nil then ns.db.pollAutoClose = false end
+
     -- Seed the built-in presets into the editable list exactly once. After
     -- this they're ordinary entries the lead can edit or delete; the
     -- pollsSeeded flag stops us re-adding ones they've removed.

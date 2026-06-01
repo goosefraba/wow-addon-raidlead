@@ -14,11 +14,7 @@ ns.Versions = Versions
 -- Storage
 ----------------------------------------------------------------------
 local function EnsureDB()
-    if not ns.db then
-        if RaidLeadDB then ns.db = RaidLeadDB
-        elseif ns.InitDB then ns.InitDB() end
-    end
-    if not ns.db then return false end
+    if not ns.EnsureDB() then return false end
     if not ns.db.versions then ns.db.versions = {} end
     return true
 end

@@ -53,11 +53,7 @@ CooldownAssign.COOLDOWNS = {
 -- Storage
 ----------------------------------------------------------------------
 local function EnsureDB()
-    if not ns.db then
-        if RaidLeadDB then ns.db = RaidLeadDB
-        elseif ns.InitDB then ns.InitDB() end
-    end
-    if not ns.db then return false end
+    if not ns.EnsureDB() then return false end
     if not ns.db.cooldowns then ns.db.cooldowns = {} end  -- [cdKey] = { caster, target }
     return true
 end
@@ -103,7 +99,7 @@ end
 ----------------------------------------------------------------------
 -- Build announce lines (for the Announce buttons in each view)
 ----------------------------------------------------------------------
-local function isBulkSync(channel) return channel == "WHISPER" end
+local isBulkSync = ns.IsBulkSync
 
 function CooldownAssign.BuildCooldownLines()
     if not EnsureDB() then return { "(no cooldowns set)" } end
@@ -144,28 +140,16 @@ end
 ----------------------------------------------------------------------
 function CooldownAssign.BuildCooldownWhispers()
     if not EnsureDB() then return {} end
-    local byName, order = {}, {}
-    local function add(name, part)
-        if not name or name == "" then return end
-        if not byName[name] then byName[name] = {}; order[#order + 1] = name end
-        byName[name][#byName[name] + 1] = part
-    end
+    local acc = ns.NewWhisperAccumulator()
     for _, cd in ipairs(CooldownAssign.COOLDOWNS) do
         local rec = ns.db.cooldowns[cd.key]
         if rec and rec.caster then
             local part = cd.label
             if cd.needsTarget and rec.target then part = part .. " on " .. rec.target end
-            add(rec.caster, part)
+            acc.add(rec.caster, part)
         end
     end
-    local out = {}
-    for _, name in ipairs(order) do
-        out[#out + 1] = {
-            name = name,
-            msg  = "[RaidLead] Cooldown: " .. table.concat(byName[name], "; "),
-        }
-    end
-    return out
+    return acc.build("[RaidLead] Cooldown: ")
 end
 
 ----------------------------------------------------------------------

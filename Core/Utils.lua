@@ -5,7 +5,7 @@
 local ADDON_NAME, ns = ...
 
 ns.ADDON_NAME    = ADDON_NAME
-ns.ADDON_VERSION = "1.5.0"
+ns.ADDON_VERSION = "1.6.0"
 ns.VERSION       = ns.ADDON_VERSION  -- alias used by version-compare paths
 ns.ACCENT        = "FF9933"
 ns.PREFIX        = "|cFF" .. ns.ACCENT .. "[RaidLead]|r "
@@ -48,6 +48,29 @@ function ns.ClassColor(class)
     return "|cFF" .. c
 end
 
+-- Class color as RGB floats (0..1), e.g. for SetTextColor / SetVertexColor.
+function ns.ClassColorRGB(class)
+    local hex = ns.CLASS_COLORS[(class or ""):upper()] or "AAAAAA"
+    return tonumber(hex:sub(1, 2), 16) / 255,
+           tonumber(hex:sub(3, 4), 16) / 255,
+           tonumber(hex:sub(5, 6), 16) / 255
+end
+
+-- Look up a player's class. Checks an optional roster list first, then the
+-- last buff-scan results; returns "UNKNOWN" if not found.
+function ns.ClassOf(name, roster)
+    if not name then return "UNKNOWN" end
+    if roster then
+        for _, p in ipairs(roster) do
+            if p.name == name then return p.class or "UNKNOWN" end
+        end
+    end
+    if ns.BuffScan and ns.BuffScan.scanResults and ns.BuffScan.scanResults[name] then
+        return ns.BuffScan.scanResults[name].class or "UNKNOWN"
+    end
+    return "UNKNOWN"
+end
+
 function ns.Timestamp()
     return date("%Y-%m-%d %H:%M")
 end
@@ -58,6 +81,48 @@ function ns.SetColorTex(tex, r, g, b, a)
     else
         tex:SetTexture(r, g, b, a or 1)
     end
+end
+
+----------------------------------------------------------------------
+-- SavedVariables / comm helpers shared by modules
+----------------------------------------------------------------------
+
+-- Ensure ns.db is bound (from SavedVariables, or by forcing InitDB).
+-- Returns true if ns.db is available. Modules call this, then ensure
+-- their own sub-tables.
+function ns.EnsureDB()
+    if not ns.db then
+        if RaidLeadDB then ns.db = RaidLeadDB
+        elseif ns.InitDB then ns.InitDB() end
+    end
+    return ns.db ~= nil
+end
+
+-- A sync reply arrives over WHISPER (bulk handshake) vs RAID/PARTY (a
+-- live single edit). Used to silence per-entry chat spam during sync.
+function ns.IsBulkSync(channel) return channel == "WHISPER" end
+
+-- Accumulate per-recipient whisper parts, then build a { {name,msg}, ... }
+-- list. Replaces the byName/order boilerplate in the whisper builders.
+function ns.NewWhisperAccumulator()
+    local byName, order = {}, {}
+    return {
+        add = function(name, part)
+            if not name or name == "" or not part or part == "" then return end
+            if not byName[name] then byName[name] = {}; order[#order + 1] = name end
+            byName[name][#byName[name] + 1] = part
+        end,
+        build = function(prefix)
+            local out = {}
+            for _, name in ipairs(order) do
+                out[#out + 1] = {
+                    name = name,
+                    msg  = (prefix or "") .. table.concat(byName[name], "; "),
+                }
+            end
+            return out
+        end,
+    }
 end
 
 ----------------------------------------------------------------------

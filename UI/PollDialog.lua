@@ -67,11 +67,60 @@ local function BuildLauncher()
     subtitle:SetPoint("TOPRIGHT", launcherDialog, "TOPRIGHT", -16, -38)
     subtitle:SetJustifyH("CENTER")
     subtitle:SetTextColor(0.7, 0.7, 0.7)
-    subtitle:SetText("Pick a question - all RaidLead users will see a vote popup.")
+    subtitle:SetText("Pick a question. RaidLead users get a vote popup; "
+        .. "enable chat voting below to include everyone else.")
 
     local cancelBtn = ns.MakeSmallButton(launcherDialog, "Cancel", 90, 24)
-    cancelBtn:SetPoint("BOTTOM", launcherDialog, "BOTTOM", 0, 14)
+    cancelBtn:SetPoint("BOTTOMRIGHT", launcherDialog, "BOTTOMRIGHT", -16, 24)
     cancelBtn:SetScript("OnClick", function() launcherDialog:Hide() end)
+
+    -- "Chat voting" toggle: posts numbered instructions to chat and scans
+    -- replies/whispers so people without the addon can still vote.
+    local chatCheck = CreateFrame("CheckButton", nil, launcherDialog, "UICheckButtonTemplate")
+    chatCheck:SetSize(22, 22)
+    chatCheck:SetPoint("BOTTOMLEFT", launcherDialog, "BOTTOMLEFT", 14, 40)
+    local cl = chatCheck:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    cl:SetPoint("LEFT", chatCheck, "RIGHT", 2, 0)
+    cl:SetText("Let everyone vote in chat")
+    cl:SetTextColor(0.85, 0.85, 0.85)
+    chatCheck:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Chat voting", 1, 0.82, 0.1)
+        GameTooltip:AddLine(
+            "Posts the question and numbered options to raid/party chat. "
+            .. "People without RaidLead can vote by typing the number "
+            .. "(or whispering you to vote silently).", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    chatCheck:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    chatCheck:SetScript("OnClick", function(self)
+        if ns.db then ns.db.pollChatVoting = self:GetChecked() and true or false end
+    end)
+    launcherDialog.chatCheck = chatCheck
+
+    -- "Auto-close after 30s" toggle. Off = poll stays open until the lead
+    -- ends it manually (with a long safety timeout).
+    local autoCheck = CreateFrame("CheckButton", nil, launcherDialog, "UICheckButtonTemplate")
+    autoCheck:SetSize(22, 22)
+    autoCheck:SetPoint("BOTTOMLEFT", launcherDialog, "BOTTOMLEFT", 14, 16)
+    local al = autoCheck:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    al:SetPoint("LEFT", autoCheck, "RIGHT", 2, 0)
+    al:SetText("Auto-close after 30s")
+    al:SetTextColor(0.85, 0.85, 0.85)
+    autoCheck:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Auto-close after 30s", 1, 0.82, 0.1)
+        GameTooltip:AddLine(
+            "Ends the poll automatically 30 seconds after starting. "
+            .. "Leave off to keep it open until you click End Poll.",
+            0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    autoCheck:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    autoCheck:SetScript("OnClick", function(self)
+        if ns.db then ns.db.pollAutoClose = self:GetChecked() and true or false end
+    end)
+    launcherDialog.autoCheck = autoCheck
 end
 
 -- (Re)build one row per available question. Rebuilt on every open so
@@ -108,7 +157,12 @@ local function RebuildLauncherRows()
 
         row:SetScript("OnClick", function()
             if ns.Polls and ns.Polls.SendPoll then
-                ns.Polls.SendPoll(choice.question, choice.options, choice.multi)
+                local chatVote = launcherDialog.chatCheck
+                    and launcherDialog.chatCheck:GetChecked() and true or false
+                local autoClose = (launcherDialog.autoCheck
+                    and launcherDialog.autoCheck:GetChecked()) and 30 or nil
+                ns.Polls.SendPoll(choice.question, choice.options, choice.multi,
+                    chatVote, autoClose)
             end
             launcherDialog:Hide()
         end)
@@ -116,13 +170,21 @@ local function RebuildLauncherRows()
         rowY = rowY - (ROW_H + ROW_GAP)
     end
 
-    -- Size the dialog to fit title + subtitle + rows + cancel button.
+    -- Size the dialog to fit title + subtitle + rows + the two checkboxes
+    -- and the cancel button at the bottom.
     local contentBottom = -rowY + 6
-    launcherDialog:SetHeight(math.max(180, contentBottom + 44))
+    launcherDialog:SetHeight(math.max(190, contentBottom + 70))
 end
 
 function ns.ShowPollLauncher()
     BuildLauncher()
+    if launcherDialog.chatCheck then
+        local on = (not ns.db) or (ns.db.pollChatVoting ~= false)
+        launcherDialog.chatCheck:SetChecked(on)
+    end
+    if launcherDialog.autoCheck then
+        launcherDialog.autoCheck:SetChecked(ns.db and ns.db.pollAutoClose and true or false)
+    end
     RebuildLauncherRows()
     launcherDialog:Show()
 end
@@ -274,12 +336,13 @@ end
 -- 3) Results window: live tally for the initiator
 ----------------------------------------------------------------------
 local resultRows = {}
+local RenderResults  -- forward decl (referenced by buttons in BuildResults)
 
 local function BuildResults()
     if resultsWindow then return end
 
     resultsWindow = CreateFrame("Frame", "RaidLeadPollResults", UIParent)
-    resultsWindow:SetSize(320, 220)
+    resultsWindow:SetSize(340, 220)
     resultsWindow:SetPoint("CENTER", UIParent, "CENTER", 0, -80)
     resultsWindow:SetFrameStrata("DIALOG")
     resultsWindow:SetFrameLevel(100)
@@ -320,68 +383,140 @@ local function BuildResults()
     end)
     announceBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
+    -- End / Restart. While the poll is open this ends it (stops collecting
+    -- votes); once closed it restarts the same poll with a fresh tally.
+    local endBtn = ns.MakeSmallButton(resultsWindow, "End Poll", 90, 24)
+    endBtn:SetPoint("LEFT", announceBtn, "RIGHT", 8, 0)
+    endBtn:SetScript("OnClick", function()
+        local poll = ns.Polls and ns.Polls.activePoll
+        if not poll then return end
+        if poll.endedAt then
+            if ns.Polls.RestartPoll then ns.Polls.RestartPoll() end
+        elseif ns.Polls.EndPoll then
+            ns.Polls.EndPoll(poll.id, "manual")
+        end
+    end)
+    endBtn:HookScript("OnEnter", function(self)
+        local poll = ns.Polls and ns.Polls.activePoll
+        local closed = poll and poll.endedAt
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        if closed then
+            GameTooltip:AddLine("Restart poll", 1, 0.82, 0.1)
+            GameTooltip:AddLine("Re-run this question with a fresh tally.",
+                0.8, 0.8, 0.8, true)
+        else
+            GameTooltip:AddLine("End poll", 1, 0.82, 0.1)
+            GameTooltip:AddLine("Stop collecting votes and close the poll. "
+                .. "Results stay here and in History.", 0.8, 0.8, 0.8, true)
+        end
+        GameTooltip:Show()
+    end)
+    endBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    resultsWindow.endBtn = endBtn
+
+    -- Toggle the per-voter breakdown (who voted for what).
+    local votersBtn = ns.MakeSmallButton(resultsWindow, "Hide Votes", 90, 24)
+    votersBtn:SetPoint("BOTTOMRIGHT", resultsWindow, "BOTTOMRIGHT", -16, 12)
+    votersBtn:SetScript("OnClick", function()
+        resultsWindow.showVoters = not resultsWindow.showVoters
+        if ns.Polls and ns.Polls.activePoll then RenderResults(ns.Polls.activePoll) end
+    end)
+    resultsWindow.votersBtn = votersBtn
+    resultsWindow.showVoters = true   -- lead sees the vote list by default
+
+    -- Per-voter list (one line per player + their pick).
+    resultsWindow.voterList = resultsWindow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    resultsWindow.voterList:SetJustifyH("LEFT")
+    resultsWindow.voterList:SetJustifyV("TOP")
+    resultsWindow.voterList:SetTextColor(0.85, 0.85, 0.85)
+
+    -- Status sits above the button row so it never overlaps the buttons.
     resultsWindow.status = resultsWindow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    resultsWindow.status:SetPoint("BOTTOMRIGHT", resultsWindow, "BOTTOMRIGHT", -16, 18)
+    resultsWindow.status:SetPoint("BOTTOMRIGHT", resultsWindow, "BOTTOMRIGHT", -16, 44)
     resultsWindow.status:SetJustifyH("RIGHT")
     resultsWindow.status:SetTextColor(0.6, 0.6, 0.6)
 end
 
-local function RenderResults(poll)
+RenderResults = function(poll)
     if not resultsWindow then return end
 
     resultsWindow.question:SetText(poll.question or "")
-
-    -- Reset old rows
-    for _, r in ipairs(resultRows) do r:Hide() end
 
     -- Count votes per option (handles both single index and multi-select
     -- index tables stored in poll.votes).
     local counts, voterTotal = ns.Polls.TallyVotes(poll)
 
-    local maxN = 0
-    for _, n in ipairs(counts) do if n > maxN then maxN = n end end
-
     local ROW_H = 26
-    -- Grow the window to fit however many options this poll has.
-    resultsWindow:SetHeight(math.max(180, 58 + #poll.options * (ROW_H + 4) + 52))
+    local barsBottom = 58 + #poll.options * (ROW_H + 4)
+    local rowW = (resultsWindow:GetWidth() or 340) - 32   -- stretch to window edges
+    ns.RenderPollBars(resultsWindow, resultRows, poll.options, counts, voterTotal, -58, rowW)
 
-    for i, opt in ipairs(poll.options) do
-        local row = resultRows[i]
-        if not row then
-            row = CreateFrame("Frame", nil, resultsWindow)
-            row:SetSize(280, ROW_H)
-            row:SetPoint("TOPLEFT", resultsWindow, "TOPLEFT", 16, -58 - (i - 1) * (ROW_H + 4))
-            row.bg = row:CreateTexture(nil, "BACKGROUND")
-            row.bg:SetAllPoints()
-            row.bg:SetColorTexture(0.10, 0.10, 0.13, 0.85)
-            row.fill = row:CreateTexture(nil, "BORDER")
-            row.fill:SetPoint("TOPLEFT",     row, "TOPLEFT",     0, 0)
-            row.fill:SetPoint("BOTTOMLEFT",  row, "BOTTOMLEFT",  0, 0)
-            row.fill:SetColorTexture(0.62, 0.42, 0.10, 0.85)
-            row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            row.label:SetPoint("LEFT",  row, "LEFT",   8, 0)
-            row.label:SetWidth(180)
-            row.label:SetJustifyH("LEFT")
-            row.count = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            row.count:SetPoint("RIGHT", row, "RIGHT", -8, 0)
-            row.count:SetJustifyH("RIGHT")
-            resultRows[i] = row
+    -- How many of those came from chat/whisper (non-addon) voters?
+    local chatN = 0
+    if poll.voteSource then
+        for _, src in pairs(poll.voteSource) do
+            if src ~= "addon" then chatN = chatN + 1 end
         end
-        row.label:SetText(opt)
-        local pct = (voterTotal > 0)
-            and math.floor(counts[i] / voterTotal * 100 + 0.5) or 0
-        row.count:SetText(string.format("%d  |cFF888888%d%%|r", counts[i], pct))
-
-        local frac = (maxN > 0) and (counts[i] / maxN) or 0
-        row.fill:SetWidth(math.max(2, frac * 280))
-        row:Show()
     end
+    local viaChat = (chatN > 0) and ("  |cFF6699CC(" .. chatN .. " via chat)|r") or ""
+
+    -- End/Restart label follows the poll state.
+    if resultsWindow.endBtn then
+        resultsWindow.endBtn:SetText(poll.endedAt and "Restart" or "End Poll")
+    end
+
+    -- Per-voter breakdown: one line per player with their pick(s) and a
+    -- tag for chat/whisper votes. Sorted by name.
+    local SRC_TAG = { chat = "  |cFF6699CC(chat)|r", whisper = "  |cFF9988CC(whisper)|r" }
+    local names = {}
+    for name in pairs(poll.votes or {}) do names[#names + 1] = name end
+    table.sort(names)
+
+    local MAX_SHOWN = 40
+    local lines, shown = {}, 0
+    for _, name in ipairs(names) do
+        shown = shown + 1
+        if shown > MAX_SHOWN then
+            lines[#lines + 1] = "|cFF888888...and " .. (#names - MAX_SHOWN) .. " more|r"
+            break
+        end
+        local choice = poll.votes[name]
+        local picks = {}
+        if type(choice) == "table" then
+            for _, idx in ipairs(choice) do picks[#picks + 1] = poll.options[idx] or "?" end
+        else
+            picks[1] = poll.options[choice] or "?"
+        end
+        local cc  = ns.ClassColor and ns.ClassColor(ns.ClassOf and ns.ClassOf(name) or "UNKNOWN")
+            or "|cFFFFFFFF"
+        local tag = SRC_TAG[(poll.voteSource or {})[name]] or ""
+        lines[#lines + 1] = cc .. name .. "|r  |cFFCCCCCC" .. table.concat(picks, ", ") .. "|r" .. tag
+    end
+
+    local hasVoters = (#names > 0)
+    local showList  = resultsWindow.showVoters and hasVoters
+    local vl = resultsWindow.voterList
+    vl:ClearAllPoints()
+    vl:SetPoint("TOPLEFT",  resultsWindow, "TOPLEFT",  16, -(barsBottom + 4))
+    vl:SetPoint("RIGHT",    resultsWindow, "RIGHT",   -16, 0)
+    vl:SetText(table.concat(lines, "\n"))
+    vl:SetShown(showList)
+
+    if resultsWindow.votersBtn then
+        resultsWindow.votersBtn:SetText(resultsWindow.showVoters and "Hide Votes" or "Show Votes")
+        resultsWindow.votersBtn:SetShown(hasVoters)
+    end
+
+    -- Grow the window to fit options + (optional) voter list + bottom bar.
+    local LINE_H   = 13
+    local listH    = showList and (math.min(shown, MAX_SHOWN + 1) * LINE_H + 8) or 0
+    resultsWindow:SetHeight(math.max(180, barsBottom + listH + 68))
 
     local noun = (voterTotal == 1) and "voter" or "voters"
     if poll.endedAt then
-        resultsWindow.status:SetText("Poll closed - " .. voterTotal .. " " .. noun)
+        resultsWindow.status:SetText("Poll closed - " .. voterTotal .. " " .. noun .. viaChat)
     else
-        resultsWindow.status:SetText(voterTotal .. " " .. noun .. " so far")
+        resultsWindow.status:SetText("|cFF66CC66Open|r - " .. voterTotal .. " " .. noun .. viaChat)
     end
 end
 

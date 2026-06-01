@@ -215,14 +215,28 @@ local function GetHistRow(i)
     local row = histRows[i]
     if row then return row end
 
-    row = CreateFrame("Frame", nil, historyView)
+    row = CreateFrame("Button", nil, historyView)
     row:SetSize(10, HROW_H)
     row:SetPoint("TOPLEFT", historyView, "TOPLEFT", 4, -54 - (i - 1) * (HROW_H + 4))
     row:SetPoint("RIGHT",   historyView, "RIGHT",  -4, 0)
+    row:RegisterForClicks("LeftButtonUp")
 
     row.bg = row:CreateTexture(nil, "BACKGROUND")
     row.bg:SetAllPoints()
     row.bg:SetColorTexture(0.10, 0.10, 0.13, 0.6)
+
+    -- Clicking the row (anywhere but the Announce button) opens the
+    -- per-voter breakdown for that poll.
+    row:SetScript("OnEnter", function(self)
+        self.bg:SetColorTexture(0.16, 0.16, 0.20, 0.85)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Click to see who voted", 1, 0.82, 0.1)
+        GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function(self)
+        self.bg:SetColorTexture(0.10, 0.10, 0.13, 0.6)
+        GameTooltip:Hide()
+    end)
 
     row.reBtn = ns.MakeSmallButton(row, "Announce", 90, 22)
     row.reBtn:SetPoint("RIGHT", row, "RIGHT", -4, 0)
@@ -267,8 +281,137 @@ RefreshHistory = function()
         row.reBtn:SetScript("OnClick", function()
             ns.Polls.AnnounceStored(e)
         end)
+        row:SetScript("OnClick", function()
+            if ns.ShowPollVotersDetail then ns.ShowPollVotersDetail(e) end
+        end)
         row:Show()
     end
+end
+
+----------------------------------------------------------------------
+-- Per-voter detail popup (opened by clicking a History row)
+----------------------------------------------------------------------
+local votersDetail
+
+local function BuildVotersDetail()
+    if votersDetail then return votersDetail end
+
+    local d = CreateFrame("Frame", "RaidLeadPollVoters", UIParent)
+    d:SetSize(360, 280)
+    d:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
+    d:SetFrameStrata("FULLSCREEN_DIALOG")
+    d:SetFrameLevel(220)
+    d:EnableMouse(true)
+    d:SetMovable(true)
+    d:RegisterForDrag("LeftButton")
+    d:SetScript("OnDragStart", function(s) s:StartMoving() end)
+    d:SetScript("OnDragStop",  function(s) s:StopMovingOrSizing() end)
+    d:Hide()
+
+    ns.ApplyBackdrop(d, ns.DIALOG_BACKDROP)
+    tinsert(UISpecialFrames, "RaidLeadPollVoters")
+
+    local closeBtn = CreateFrame("Button", nil, d, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", d, "TOPRIGHT", -2, -2)
+
+    local title = d:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOP", d, "TOP", 0, -14)
+    title:SetText("|cFFFFCC00Poll Votes|r")
+
+    d.question = d:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    d.question:SetPoint("TOPLEFT",  d, "TOPLEFT",  16, -40)
+    d.question:SetPoint("TOPRIGHT", d, "TOPRIGHT", -16, -40)
+    d.question:SetJustifyH("CENTER")
+    d.question:SetTextColor(0.95, 0.95, 0.85)
+
+    d.meta = d:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    d.meta:SetPoint("TOPLEFT",  d, "TOPLEFT",  16, -60)
+    d.meta:SetPoint("TOPRIGHT", d, "TOPRIGHT", -16, -60)
+    d.meta:SetJustifyH("CENTER")
+    d.meta:SetTextColor(0.6, 0.6, 0.6)
+
+    d.barRows = {}   -- pooled result bars (shared renderer)
+
+    d.list = d:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    d.list:SetJustifyH("LEFT")
+    d.list:SetJustifyV("TOP")
+    d.list:SetTextColor(0.85, 0.85, 0.85)
+
+    votersDetail = d
+    return d
+end
+
+-- Build the sorted "Name: pick(s) (tag)" lines from a stored history entry.
+local function BuildVoterLines(entry)
+    local SRC_TAG = { chat = "  |cFF6699CC(chat)|r", whisper = "  |cFF9988CC(whisper)|r" }
+    local names = {}
+    for name in pairs(entry.votes or {}) do names[#names + 1] = name end
+    table.sort(names)
+
+    local MAX_SHOWN = 40
+    local lines, shown = {}, 0
+    for _, name in ipairs(names) do
+        shown = shown + 1
+        if shown > MAX_SHOWN then
+            lines[#lines + 1] = "|cFF888888...and " .. (#names - MAX_SHOWN) .. " more|r"
+            break
+        end
+        local picks = {}
+        for _, idx in ipairs(entry.votes[name]) do
+            picks[#picks + 1] = (entry.options and entry.options[idx]) or "?"
+        end
+        local cc  = ns.ClassColor and ns.ClassColor(ns.ClassOf and ns.ClassOf(name) or "UNKNOWN")
+            or "|cFFFFFFFF"
+        local tag = SRC_TAG[(entry.voteSource or {})[name]] or ""
+        lines[#lines + 1] = cc .. name .. "|r  |cFFCCCCCC"
+            .. table.concat(picks, ", ") .. "|r" .. tag
+    end
+    return lines, #names
+end
+
+function ns.ShowPollVotersDetail(entry)
+    if not entry then return end
+    local d = BuildVotersDetail()
+
+    d.question:SetText(entry.question or "(untitled)")
+
+    local lines, nVoters = BuildVoterLines(entry)
+    local voterTotal = entry.voterTotal or nVoters
+    local when = (entry.endedAt and entry.endedAt > 0)
+        and date("%Y-%m-%d %H:%M", entry.endedAt) or "?"
+    d.meta:SetText(when .. "  |cFF6699CC\194\183|r  " .. voterTotal
+        .. (voterTotal == 1 and " voter" or " voters"))
+
+    -- Result bars (same look as the live Poll Results window). Available
+    -- for every history entry since counts are always stored.
+    local options = entry.options or {}
+    local ROW_H   = 26
+    local rowW    = (d:GetWidth() or 360) - 32
+    ns.RenderPollBars(d, d.barRows, options, entry.counts or {}, voterTotal, -82, rowW)
+    local barsBottom = 82 + #options * (ROW_H + 4)
+
+    -- Per-voter list below the bars.
+    d.list:ClearAllPoints()
+    d.list:SetPoint("TOPLEFT", d, "TOPLEFT", 16, -(barsBottom + 6))
+    d.list:SetPoint("RIGHT",   d, "RIGHT",  -16,  0)
+
+    if nVoters == 0 then
+        -- Older history entries (recorded before per-voter capture) have no
+        -- per-voter data; show a friendly note instead of a blank list.
+        if entry.votes then
+            d.list:SetText("|cFF888888No one voted.|r")
+        else
+            d.list:SetText("|cFF888888No per-voter detail for this poll "
+                .. "(recorded before this feature).|r")
+        end
+    else
+        d.list:SetText(table.concat(lines, "\n"))
+    end
+
+    local LINE_H   = 14
+    local listRows = math.max(1, math.min(nVoters, 41))
+    d:SetHeight(math.max(170, barsBottom + listRows * LINE_H + 22))
+    d:Show()
 end
 
 ----------------------------------------------------------------------

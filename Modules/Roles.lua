@@ -88,11 +88,7 @@ Roles._suppressBroadcast = false
 -- Storage
 ----------------------------------------------------------------------
 local function EnsureDB()
-    if not ns.db then
-        if RaidLeadDB then ns.db = RaidLeadDB
-        elseif ns.InitDB then ns.InitDB() end
-    end
-    if not ns.db then return false end
+    if not ns.EnsureDB() then return false end
     if not ns.db.roles then ns.db.roles = {} end
     return true
 end

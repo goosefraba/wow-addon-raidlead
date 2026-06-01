@@ -648,13 +648,7 @@ function ns.CreatePlayerDropdown(parent, width, onSelect)
     btn.selectedName = nil
 
     -- Look up RGB from class colors hex
-    local function ClassColorRGB(class)
-        local hex = ns.CLASS_COLORS[(class or ""):upper()] or "AAAAAA"
-        local r = tonumber(hex:sub(1, 2), 16) / 255
-        local g = tonumber(hex:sub(3, 4), 16) / 255
-        local b = tonumber(hex:sub(5, 6), 16) / 255
-        return r, g, b
-    end
+    local ClassColorRGB = ns.ClassColorRGB
 
     function btn:SetSelectedPlayer(name, class)
         if name then
@@ -825,4 +819,67 @@ function ns.CreatePlayerDropdown(parent, width, onSelect)
     btn.popup = popup
 
     return btn
+end
+
+----------------------------------------------------------------------
+-- Poll result bars. Renders one horizontal bar per option (label + fill
+-- + count/percent) into a pooled row table, packed top-to-bottom from
+-- startY. Shared by the live Poll Results window and the History detail
+-- popup so both look identical.
+--   parent      frame to anchor rows into
+--   pool        table reused across calls to hold the row frames
+--   options     { "Yes", "No", ... }
+--   counts      { [i] = n }   votes per option
+--   voterTotal  distinct voters (for the percentage)
+--   startY      y-offset of the first row's top edge (negative)
+--   rowW        usable width (for scaling the fill)
+----------------------------------------------------------------------
+function ns.RenderPollBars(parent, pool, options, counts, voterTotal, startY, rowW)
+    local ROW_H, GAP = 26, 4
+    counts = counts or {}
+
+    for _, r in ipairs(pool) do r:Hide() end
+
+    local maxN = 0
+    for _, n in pairs(counts) do if n and n > maxN then maxN = n end end
+
+    for i, opt in ipairs(options) do
+        local row = pool[i]
+        if not row then
+            local y = startY - (i - 1) * (ROW_H + GAP)
+            row = CreateFrame("Frame", nil, parent)
+            row:SetHeight(ROW_H)
+            row:SetPoint("TOPLEFT",  parent, "TOPLEFT",  16, y)
+            row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -16, y)
+
+            row.bg = row:CreateTexture(nil, "BACKGROUND")
+            row.bg:SetAllPoints()
+            row.bg:SetColorTexture(0.10, 0.10, 0.13, 0.85)
+
+            row.fill = row:CreateTexture(nil, "BORDER")
+            row.fill:SetPoint("TOPLEFT",    row, "TOPLEFT",    0, 0)
+            row.fill:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+            row.fill:SetColorTexture(0.62, 0.42, 0.10, 0.85)
+
+            row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            row.label:SetPoint("LEFT", row, "LEFT", 8, 0)
+            row.label:SetWidth(180)
+            row.label:SetJustifyH("LEFT")
+
+            row.count = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            row.count:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+            row.count:SetJustifyH("RIGHT")
+
+            pool[i] = row
+        end
+
+        row.label:SetText(opt)
+        local c   = counts[i] or 0
+        local pct = (voterTotal > 0) and math.floor(c / voterTotal * 100 + 0.5) or 0
+        row.count:SetText(string.format("%d  |cFF888888%d%%|r", c, pct))
+
+        local frac = (maxN > 0) and (c / maxN) or 0
+        row.fill:SetWidth(math.max(2, frac * (rowW or 280)))
+        row:Show()
+    end
 end
