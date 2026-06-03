@@ -50,6 +50,11 @@ SlashCmdList["RAIDLEAD"] = function(msg)
             ns.P("Removed " .. removed .. " mock loot run(s). Real data preserved.")
         end
 
+    elseif cmd == "restorehistory" then
+        if ns.LootHistory and ns.LootHistory.RestoreBackup then
+            ns.LootHistory.RestoreBackup()
+        end
+
     elseif cmd == "announce" then
         local sub = (rest or ""):lower():trim()
         if sub == "buffs" or sub == "consumables" then
@@ -131,6 +136,7 @@ SlashCmdList["RAIDLEAD"] = function(msg)
         ns.P("  |cFFFFCC00/rl scan|r \226\128\148 Force re-scan buffs")
         ns.P("  |cFFFFCC00/rl mock|r \226\128\148 Load mock test data (solo testing)")
         ns.P("  |cFFFFCC00/rl clearmock|r \226\128\148 Remove mock loot history (keep real data)")
+        ns.P("  |cFFFFCC00/rl restorehistory|r \226\128\148 Restore raid history from the last backup")
         ns.P("  |cFFFFCC00/rl announce|r \226\128\148 Post all missing to raid/party")
         ns.P("  |cFFFFCC00/rl announce buffs|r \226\128\148 Post missing consumables only")
         ns.P("  |cFFFFCC00/rl announce raidbuffs|r \226\128\148 Post missing raid buffs only")
@@ -206,6 +212,11 @@ local function MaybeAutoSync(reason)
             if ns.Versions.BroadcastMine then ns.Versions.BroadcastMine() end
             if ns.Versions.RequestAll    then ns.Versions.RequestAll()    end
         end
+        -- ...and for self-reported weapon enchants (oils/stones)
+        if ns.WeaponEnchant then
+            if ns.WeaponEnchant.BroadcastMine then ns.WeaponEnchant.BroadcastMine() end
+            if ns.WeaponEnchant.RequestAll    then ns.WeaponEnchant.RequestAll()    end
+        end
     end)
 end
 
@@ -252,6 +263,11 @@ loader:SetScript("OnEvent", function(self, event, ...)
         -- UnitName("player") is reliable only from PLAYER_LOGIN onward.
         if ns.Versions and ns.Versions.RecordSelf then
             ns.Versions.RecordSelf()
+        end
+        -- Seed our own weapon-enchant report so the local row is populated
+        -- even before the first scan/broadcast.
+        if ns.WeaponEnchant and ns.WeaponEnchant.ScanSelf then
+            ns.WeaponEnchant.ScanSelf()
         end
         wasInGroup = (ns.GetGroupType() ~= "solo")
         if wasInGroup then

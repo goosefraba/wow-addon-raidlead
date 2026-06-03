@@ -1,5 +1,16 @@
 # RaidLead Changelog
 
+## v1.6.1
+
+### New Features
+- **Weapon oils / stones** — an optional **Weapon** column on the Grid tracks temporary weapon enchants (mana oils, sharpening / weight stones). Because the game only exposes weapon enchants for yourself, each RaidLead player shares their own status with the raid; players without the addon show `?`. Configure it from the Grid tab's gear popup, which now houses **all** column controls (flasks, food, weapon, raid buffs) together, with an info tooltip explaining how it works.
+
+### Bug Fixes
+- **Raid history is no longer wiped by `/rl mock`.** Loading mock test data used to clear your entire loot/attendance history first. It's now fully non-destructive: real runs are kept, only previous mock runs are replaced, and mock run IDs are prefixed so they can never overwrite a real run.
+
+### New
+- **Automatic history backup + restore.** Before any history wipe (mock load or "Clear History"), your real runs are snapshotted automatically. Recover them with the new `/rl restorehistory` command.
+
 ## v1.6.0
 
 ### New Features

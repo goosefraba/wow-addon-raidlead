@@ -219,13 +219,57 @@ function LootHistory.GetInstances()
 end
 
 ----------------------------------------------------------------------
+-- Backup / restore safety net. BackupRuns snapshots the REAL (non-mock)
+-- runs into a separate slot so a later wipe/mock-load can be undone. The
+-- snapshot survives reassignment of ns.db.lootHistory because it lives in
+-- its own key and holds the run tables directly.
+----------------------------------------------------------------------
+function LootHistory.BackupRuns(reason)
+    if not EnsureDB() then return end
+    local snap, n = {}, 0
+    for id, run in pairs(ns.db.lootHistory.runs) do
+        if not LootHistory.IsMockRun(run) then
+            snap[id] = run
+            n = n + 1
+        end
+    end
+    if n == 0 then return end   -- nothing real worth protecting
+    ns.db.lootHistoryBackup = { runs = snap, savedAt = time(), reason = reason }
+    ns.D("LootHistory: backed up " .. n .. " real run(s) (" .. tostring(reason) .. ").")
+end
+
+-- Merge any backed-up runs back into the live history (without clobbering
+-- runs that already exist). Returns how many were restored.
+function LootHistory.RestoreBackup()
+    if not EnsureDB() then return 0 end
+    local bk = ns.db.lootHistoryBackup
+    if not (bk and bk.runs) then
+        ns.P("|cFFFF8800No history backup found to restore.|r")
+        return 0
+    end
+    local restored = 0
+    for id, run in pairs(bk.runs) do
+        if not ns.db.lootHistory.runs[id] then
+            ns.db.lootHistory.runs[id] = run
+            restored = restored + 1
+        end
+    end
+    if ns.RefreshLootHistory then ns.RefreshLootHistory() end
+    local whenStr = (bk.savedAt and bk.savedAt > 0)
+        and date("%Y-%m-%d %H:%M", bk.savedAt) or "?"
+    ns.P("Restored " .. restored .. " run(s) from backup (" .. whenStr .. ").")
+    return restored
+end
+
+----------------------------------------------------------------------
 -- Wipe
 ----------------------------------------------------------------------
 function LootHistory.ClearAll()
     if not EnsureDB() then return end
+    LootHistory.BackupRuns("before clear all")   -- recoverable via RestoreBackup
     ns.db.lootHistory = { runs = {} }
     currentRunId = nil
-    ns.P("Cleared loot history.")
+    ns.P("Cleared loot history. (Recover with |cFFFFCC00/rl restorehistory|r.)")
 end
 
 function LootHistory.DeleteRun(runId)
@@ -464,7 +508,9 @@ end
 
 local function MakeMockRun(pool, dayOffset, attendeeCount, lootCount)
     local startTime = time() - dayOffset * 86400 + math.random(-3600, 3600)
-    local runId = MakeRunId(pool.instanceMapId, startTime)
+    -- Prefix mock ids so they can NEVER collide with (and overwrite) a real
+    -- run that happens to share the same instance/day.
+    local runId = "mock:" .. pool.instanceMapId .. ":" .. dayOffset
 
     -- Pick attendees (each a {name=,class=} record) and store with class
     local attendees = {}
@@ -510,8 +556,13 @@ end
 
 function LootHistory.LoadMockData()
     if not EnsureDB() then return end
-    ns.db.lootHistory = { runs = {} }
-    currentRunId = nil
+
+    -- NON-DESTRUCTIVE: never wipe real history. Back it up first, then drop
+    -- only pre-existing mock runs and add fresh ones ALONGSIDE real runs.
+    -- (Previously this did `ns.db.lootHistory = { runs = {} }`, which
+    -- destroyed real raid history when someone ran /rl mock.)
+    LootHistory.BackupRuns("before mock load")
+    LootHistory.RemoveMockRuns()
 
     local mockRuns = {
         { pool = MOCK_LOOT_POOLS.karazhan, dayOffset = 0,  attendees = 10, loots = 5 },

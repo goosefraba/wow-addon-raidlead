@@ -42,9 +42,9 @@ gearBtn:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
 gearBtn:SetHighlightTexture("Interface\\Buttons\\UI-OptionsButton")
 gearBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-    GameTooltip:AddLine("Choose raid buffs", 1, 0.82, 0.1)
-    GameTooltip:AddLine("Pick which raid buffs show in the grid and count as missing.",
-        0.8, 0.8, 0.8, true)
+    GameTooltip:AddLine("Grid columns", 1, 0.82, 0.1)
+    GameTooltip:AddLine("Choose which columns the grid shows (flasks, food, weapon "
+        .. "oils/stones) and which raid buffs to track.", 0.8, 0.8, 0.8, true)
     GameTooltip:Show()
 end)
 gearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -69,7 +69,19 @@ local COL_FLASK_X = COL_NAME_W + 4
 local COL_FLASK_W = 70
 local COL_FOOD_X  = COL_FLASK_X + COL_FLASK_W + 4
 local COL_FOOD_W  = 50
-local COL_RAID_X  = COL_FOOD_X  + COL_FOOD_W  + 4
+-- Optional weapon-enchant column (oils/stones). Shown only when tracking
+-- is enabled; raid-buff icons shift right to make room when it is.
+local COL_WEAPON_X = COL_FOOD_X + COL_FOOD_W + 4
+local COL_WEAPON_W = 44
+local COL_RAID_X     = COL_FOOD_X   + COL_FOOD_W   + 4   -- weapon column hidden
+local COL_RAID_X_WPN = COL_WEAPON_X + COL_WEAPON_W + 4   -- weapon column shown
+
+local function WeaponColShown()
+    return ns.db and ns.db.settings and ns.db.settings.trackWeaponEnchant and true or false
+end
+local function RaidColX()
+    return WeaponColShown() and COL_RAID_X_WPN or COL_RAID_X
+end
 
 ----------------------------------------------------------------------
 -- Grid header bar
@@ -82,6 +94,7 @@ headerBar:SetPoint("TOPRIGHT", gridContent, "TOPRIGHT", 0, -24)
 ns.MakeHeader(headerBar, "Name",          4,           COL_NAME_W)
 ns.MakeHeader(headerBar, "Flask/Elixir",  COL_FLASK_X, COL_FLASK_W)
 ns.MakeHeader(headerBar, "Food",          COL_FOOD_X,  COL_FOOD_W)
+local weaponHeader = ns.MakeHeader(headerBar, "Weapon", COL_WEAPON_X, COL_WEAPON_W)
 
 -- Raid buff header icons. Stored by family key so column visibility can
 -- be re-laid-out when the player changes which buffs they track.
@@ -93,7 +106,7 @@ do
         if family then
             local hIcon = CreateFrame("Frame", nil, headerBar)
             hIcon:SetSize(HDR_ICON, HDR_ICON)
-            hIcon:SetPoint("TOPLEFT", headerBar, "TOPLEFT", COL_RAID_X, -2)
+            hIcon:SetPoint("TOPLEFT", headerBar, "TOPLEFT", RaidColX(), -2)
             hIcon:EnableMouse(true)
             headerIcons[fk] = hIcon
 
@@ -223,6 +236,21 @@ local function CreateGridRow(index)
                 else
                     GameTooltip:AddLine("Food: MISSING", 1, 0.3, 0.3)
                 end
+
+                -- Weapon oil/stone (self-reported)
+                local we = ns.WeaponEnchant and ns.WeaponEnchant.Get(r.name)
+                if not we then
+                    GameTooltip:AddLine("Weapon Oil/Stone: |cFF888888unknown|r", 0.6, 0.6, 0.6)
+                    GameTooltip:AddLine("Player needs the RaidLead addon to share this.",
+                        1, 0.3, 0.3, true)
+                elseif not ns.WeaponEnchant.NeedsAny(we) then
+                    GameTooltip:AddLine("Weapon Oil/Stone: n/a", 0.6, 0.6, 0.6)
+                elseif ns.WeaponEnchant.IsMissing(we) then
+                    GameTooltip:AddLine("Weapon Oil/Stone: MISSING", 1, 0.3, 0.3)
+                else
+                    GameTooltip:AddLine("Weapon Oil/Stone: Yes", 0.4, 1, 0.4)
+                end
+
                 GameTooltip:AddLine(" ")
                 GameTooltip:AddLine("Raid Buffs:", 1, 0.82, 0.1)
                 for _, fk in ipairs(ns.RAID_BUFF_ORDER) do
@@ -280,6 +308,12 @@ local function CreateGridRow(index)
     row.foodText:SetWidth(COL_FOOD_W)
     row.foodText:SetJustifyH("CENTER")
 
+    -- Weapon oil/stone status (self-reported; only shown when tracking on).
+    row.weaponText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.weaponText:SetPoint("TOPLEFT", row, "TOPLEFT", COL_WEAPON_X, -3)
+    row.weaponText:SetWidth(COL_WEAPON_W)
+    row.weaponText:SetJustifyH("CENTER")
+
     -- Raid buff icons
     local ICON_SIZE = 16
     local ICON_PAD  = 2
@@ -290,7 +324,7 @@ local function CreateGridRow(index)
             local iconFrame = CreateFrame("Frame", nil, row)
             iconFrame:SetSize(ICON_SIZE, ICON_SIZE)
             iconFrame:SetPoint("TOPLEFT", row, "TOPLEFT",
-                COL_RAID_X + (idx - 1) * (ICON_SIZE + ICON_PAD), -2)
+                RaidColX() + (idx - 1) * (ICON_SIZE + ICON_PAD), -2)
             iconFrame:EnableMouse(true)
 
             local tex = iconFrame:CreateTexture(nil, "ARTWORK")
@@ -348,6 +382,20 @@ local YELLOW_HALF  = "|cFFFFCC00~|r"
 local GREY_Q       = "|cFF888888?|r"
 local GREY_DEAD    = "|cFF666666--|r"
 
+-- Weapon oil/stone cell. Self-reported, so:
+--   ? = no report (peer without the addon)
+--   - = no weapon that wants an enchant
+--   X = a needed enchant is missing
+--  OK = all needed weapons enchanted
+local function WeaponCellText(r)
+    if not ns.WeaponEnchant then return GREY_Q end
+    local rep = ns.WeaponEnchant.Get(r.name)
+    if not rep then return GREY_Q end
+    if not ns.WeaponEnchant.NeedsAny(rep) then return GREY_DEAD end
+    if ns.WeaponEnchant.IsMissing(rep)    then return RED_X end
+    return GREEN_CHECK
+end
+
 ----------------------------------------------------------------------
 -- Raid-buff column layout. Tracked buffs are packed left-to-right by
 -- visible position (so unchecked buffs leave no gap); untracked ones are
@@ -363,7 +411,7 @@ local function LayoutRaidBuffIcons(iconMap, yOff)
             if ns.IsRaidBuffTracked(fk) then
                 ic:ClearAllPoints()
                 ic:SetPoint("TOPLEFT", ic:GetParent(), "TOPLEFT",
-                    COL_RAID_X + vis * RAID_COL_STEP, yOff)
+                    RaidColX() + vis * RAID_COL_STEP, yOff)
                 ic:Show()
                 vis = vis + 1
             else
@@ -470,6 +518,13 @@ local function RefreshGridTab()
                         end
                     end
                 end
+
+                -- Weapon column (independent of inspect range — it's comm
+                -- data, not an aura). Only visible when tracking is on.
+                row.weaponText:SetShown(WeaponColShown())
+                if WeaponColShown() then
+                    row.weaponText:SetText(WeaponCellText(r))
+                end
             end
 
             row:Show()
@@ -477,6 +532,8 @@ local function RefreshGridTab()
             row:Hide()
         end
     end
+
+    if weaponHeader then weaponHeader:SetShown(WeaponColShown()) end
 
     for i = visibleRows + 1, #gridRows do
         gridRows[i]:Hide()
@@ -542,7 +599,7 @@ local function BuildMissingLines()
                 if #m == 0 then fullyBuffed = fullyBuffed + 1 end
             end
         end
-        for _, label in ipairs({"Flask/Elixirs", "Battle Elixir", "Guardian Elixir", "Food"}) do
+        for _, label in ipairs(BuffScan.CONSUMABLE_LABELS) do
             if catPlayers[label] then
                 missingLines[#missingLines + 1] = "|cFFFFCC00Missing " .. label .. ":|r"
                 for _, pname in ipairs(catPlayers[label]) do
@@ -677,18 +734,102 @@ local function BuildBuffPicker()
 
     local title = picker:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOP", picker, "TOP", 0, -14)
-    title:SetText("|cFFFFCC00Raid Buffs to Track|r")
+    title:SetText("|cFFFFCC00Grid Columns|r")
 
     local sub = picker:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     sub:SetPoint("TOPLEFT",  picker, "TOPLEFT",  16, -38)
     sub:SetPoint("TOPRIGHT", picker, "TOPRIGHT", -16, -38)
     sub:SetJustifyH("CENTER")
     sub:SetTextColor(0.7, 0.7, 0.7)
-    sub:SetText("Unchecked buffs are hidden from the grid and never flagged as missing.")
+    sub:SetText("Pick the grid's columns and tracked raid buffs.")
+
+    ----------------------------------------------------------------
+    -- Column on/off toggles (flasks, food, weapon, raid buffs)
+    ----------------------------------------------------------------
+    local function SetColSetting(key, val, isWeapon)
+        if ns.db and ns.db.settings then ns.db.settings[key] = val and true or false end
+        if isWeapon and val and ns.WeaponEnchant then
+            if ns.WeaponEnchant.BroadcastMine then ns.WeaponEnchant.BroadcastMine() end
+            if ns.WeaponEnchant.RequestAll    then ns.WeaponEnchant.RequestAll()    end
+        end
+        ApplyBuffPickerChange()
+    end
+
+    local COLUMN_TOGGLES = {
+        { label = "Flasks / Elixirs",     key = "trackFlasks" },
+        { label = "Food",                 key = "trackFood" },
+        { label = "Weapon Oils/Stones",   key = "trackWeaponEnchant", weapon = true },
+        { label = "Raid Buffs",           key = "trackRaidBuffs" },
+    }
+
+    local colHeader = picker:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    colHeader:SetPoint("TOPLEFT", picker, "TOPLEFT", 16, -56)
+    colHeader:SetTextColor(1, 0.82, 0.1)
+    colHeader:SetText("Columns")
+
+    picker.colChecks = {}
+    do
+        local CW, CH = 178, 24
+        for i, def in ipairs(COLUMN_TOGGLES) do
+            local col  = (i - 1) % 2
+            local rowi = math.floor((i - 1) / 2)
+            local cb = CreateFrame("CheckButton", nil, picker, "UICheckButtonTemplate")
+            cb:SetSize(22, 22)
+            cb:SetPoint("TOPLEFT", picker, "TOPLEFT", 16 + col * CW, -74 - rowi * CH)
+            local lbl = picker:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            lbl:SetPoint("LEFT", cb, "RIGHT", 2, 0)
+            lbl:SetText(def.label)
+            lbl:SetTextColor(0.9, 0.9, 0.9)
+            cb.settingKey = def.key
+            cb.isWeapon   = def.weapon
+            cb:SetScript("OnClick", function(self)
+                SetColSetting(self.settingKey, self:GetChecked(), self.isWeapon)
+            end)
+            picker.colChecks[def.key] = cb
+
+            -- Info icon next to the weapon toggle: explains the self-report
+            -- model and what the grid symbols mean.
+            if def.weapon then
+                local info = CreateFrame("Frame", nil, picker)
+                info:SetSize(16, 16)
+                info:SetPoint("LEFT", lbl, "RIGHT", 4, 0)
+                info:EnableMouse(true)
+                local tx = info:CreateTexture(nil, "ARTWORK")
+                tx:SetAllPoints()
+                tx:SetTexture("Interface\\FriendsFrame\\InformationIcon")
+                info:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:AddLine("Weapon Oils / Stones", 1, 0.82, 0.1)
+                    GameTooltip:AddLine("Tracks temporary weapon enchants \226\128\148 "
+                        .. "mana oils and sharpening / weight stones.",
+                        0.85, 0.85, 0.85, true)
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine("The game only exposes weapon enchants for "
+                        .. "yourself, so each RaidLead player shares their own status "
+                        .. "with the raid.", 0.85, 0.85, 0.85, true)
+                    GameTooltip:AddLine("A player needs the RaidLead addon to share "
+                        .. "this info.", 1, 0.3, 0.3, true)
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine("Grid symbols:", 1, 0.82, 0.1)
+                    GameTooltip:AddDoubleLine("OK", "weapon is enchanted",      0.4, 1, 0.4, 0.8, 0.8, 0.8)
+                    GameTooltip:AddDoubleLine("X",  "needed enchant missing",   1, 0.3, 0.3, 0.8, 0.8, 0.8)
+                    GameTooltip:AddDoubleLine("\226\128\148", "no weapon that needs one", 0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
+                    GameTooltip:AddDoubleLine("?",  "player without RaidLead",   0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
+                    GameTooltip:Show()
+                end)
+                info:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            end
+        end
+    end
+
+    local rbHeader = picker:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    rbHeader:SetPoint("TOPLEFT", picker, "TOPLEFT", 16, -128)
+    rbHeader:SetTextColor(1, 0.82, 0.1)
+    rbHeader:SetText("Raid buffs to track")
 
     pickerChecks = {}
     local COL_W, ROW_H   = 164, 26
-    local startX, startY = 16, -62
+    local startX, startY = 16, -148
     for idx, fk in ipairs(ns.RAID_BUFF_ORDER) do
         local family = BD.raidBuffs[fk]
         if family then
@@ -744,13 +885,21 @@ local function BuildBuffPicker()
     doneBtn:SetScript("OnClick", function() picker:Hide() end)
 
     local rows = math.ceil(#ns.RAID_BUFF_ORDER / 2)
-    picker:SetHeight(62 + rows * ROW_H + 46)
+    -- 148 = top section (title + sub + columns + raid-buff header) before
+    -- the per-buff grid; + grid height; + 46 for the button row.
+    picker:SetHeight(148 + rows * ROW_H + 46)
 end
 
 function ns.ShowRaidBuffPicker()
     BuildBuffPicker()
     for fk, cb in pairs(pickerChecks) do
         cb:SetChecked(ns.IsRaidBuffTracked(fk))
+    end
+    local s = ns.db and ns.db.settings
+    if s and picker.colChecks then
+        for key, cb in pairs(picker.colChecks) do
+            cb:SetChecked(s[key] and true or false)
+        end
     end
     picker:Show()
 end

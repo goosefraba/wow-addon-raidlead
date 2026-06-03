@@ -9,6 +9,7 @@ ns.SETTINGS_DEFAULTS = {
     trackFlasks    = true,
     trackFood      = true,
     trackRaidBuffs = true,
+    trackWeaponEnchant = false,   -- weapon oils/stones (self-reported; opt-in)
     autoScan       = true,
     debug          = false,
     compactMode    = false,

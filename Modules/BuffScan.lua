@@ -44,7 +44,7 @@ BuffScan.scanTime     = nil
 ----------------------------------------------------------------------
 -- Consumable labels
 ----------------------------------------------------------------------
-BuffScan.CONSUMABLE_LABELS = { "Flask/Elixirs", "Battle Elixir", "Guardian Elixir", "Food" }
+BuffScan.CONSUMABLE_LABELS = { "Flask/Elixirs", "Battle Elixir", "Guardian Elixir", "Food", "Weapon Oil/Stone" }
 
 ----------------------------------------------------------------------
 -- Scan a single unit
@@ -161,6 +161,15 @@ function BuffScan.GetMissingConsumables(r)
             missing[#missing + 1] = "Food"
         end
     end
+    -- Weapon oils/stones are self-reported (see WeaponEnchant.lua). Only
+    -- flag a player we actually have a report for; unknown peers (no addon)
+    -- are never falsely marked missing.
+    if s.trackWeaponEnchant and ns.WeaponEnchant then
+        local rep = ns.WeaponEnchant.Get(r.name)
+        if rep and ns.WeaponEnchant.IsMissing(rep) then
+            missing[#missing + 1] = "Weapon Oil/Stone"
+        end
+    end
     return missing
 end
 
@@ -213,6 +222,12 @@ function BuffScan.ScanGroup()
             BuffScan.scanResults[result.name] = result
             BuffScan.scanSorted[#BuffScan.scanSorted + 1] = result.name
         end
+    end
+
+    -- Refresh our own weapon-enchant self-report alongside the buff scan
+    -- (other players' reports arrive via WeaponEnchant comm).
+    if ns.WeaponEnchant and ns.WeaponEnchant.ScanSelf then
+        ns.WeaponEnchant.ScanSelf()
     end
 
     table.sort(BuffScan.scanSorted)

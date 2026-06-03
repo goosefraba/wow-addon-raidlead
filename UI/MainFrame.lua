@@ -991,40 +991,21 @@ do
 
     do
         local yOff = -8
-        local trackFlaskToggle = ns.CreateToggle(buffPane, yOff,
-            "Track Flasks / Elixirs",
-            "Show flask and elixir status in the grid.",
-            function() return ns.db and ns.db.settings and ns.db.settings.trackFlasks or false end,
-            function(val)
-                if ns.db and ns.db.settings then ns.db.settings.trackFlasks = val end
-                ns.P("Track Flasks: " .. (val and "|cFF44FF44ON|r" or "|cFFFF4444OFF|r"))
-            end
-        )
-
-        yOff = yOff - 50
-        local trackFoodToggle = ns.CreateToggle(buffPane, yOff,
-            "Track Food Buffs",
-            "Show food buff status in the grid.",
-            function() return ns.db and ns.db.settings and ns.db.settings.trackFood or false end,
-            function(val)
-                if ns.db and ns.db.settings then ns.db.settings.trackFood = val end
-                ns.P("Track Food: " .. (val and "|cFF44FF44ON|r" or "|cFFFF4444OFF|r"))
-            end
-        )
-
-        yOff = yOff - 50
-        local trackRaidToggle = ns.CreateToggle(buffPane, yOff,
-            "Track Raid Buffs",
-            "Show class-provided raid buffs in the grid.",
-            function() return ns.db and ns.db.settings and ns.db.settings.trackRaidBuffs or false end,
-            function(val)
-                if ns.db and ns.db.settings then ns.db.settings.trackRaidBuffs = val end
-                ns.P("Track Raid Buffs: " .. (val and "|cFF44FF44ON|r" or "|cFFFF4444OFF|r"))
-            end
-        )
+        -- Column on/off toggles (flasks, food, weapon, raid buffs) now live
+        -- together in the Grid tab's gear popup, so they're not duplicated
+        -- here. Point the user there.
+        local colTip = buffPane:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        colTip:SetPoint("TOPLEFT", buffPane, "TOPLEFT", 4, yOff)
+        colTip:SetPoint("RIGHT",   buffPane, "RIGHT",  -4, 0)
+        colTip:SetJustifyH("LEFT")
+        colTip:SetWordWrap(true)
+        colTip:SetTextColor(0.7, 0.7, 0.7)
+        colTip:SetText("Grid columns \226\128\148 flasks, food, weapon oils/stones and "
+            .. "raid buffs \226\128\148 are configured with the |cFFFFCC00gear icon|r "
+            .. "on the Grid tab.")
 
         -- Announce style section
-        yOff = yOff - 56
+        yOff = yOff - 52
         local styleHeader = ns.MakeSectionHeader(buffPane, "Announce Style")
         styleHeader:SetPoint("TOPLEFT", buffPane, "TOPLEFT", 0, yOff)
         styleHeader:SetPoint("RIGHT", buffPane, "RIGHT", 0, 0)
