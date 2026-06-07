@@ -330,7 +330,7 @@ function BuffScan.Announce(channel, mode)
     end
 
     if #BuffScan.scanSorted == 0 then
-        ns.P("No scan data. Use /rl scan first.")
+        ns.P("No scan data. Use /raidlead scan first.")
         return
     end
 
@@ -495,7 +495,7 @@ function BuffScan.NudgeWhisper()
         return
     end
     if #BuffScan.scanSorted == 0 then
-        ns.P("No scan data. Use /rl scan first.")
+        ns.P("No scan data. Use /raidlead scan first.")
         return
     end
     local nudges = BuffScan.BuildConsumableNudges()
@@ -518,7 +518,7 @@ function BuffScan.NudgeCallout(channel)
     end
     channel = channel or BuffScan.GetAnnounceChannel()
     if not channel then ns.P("You are not in a group or raid."); return end
-    if #BuffScan.scanSorted == 0 then ns.P("No scan data. Use /rl scan first."); return end
+    if #BuffScan.scanSorted == 0 then ns.P("No scan data. Use /raidlead scan first."); return end
 
     local cat = {}
     for _, name in ipairs(BuffScan.scanSorted) do

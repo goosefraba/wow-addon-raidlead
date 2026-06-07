@@ -269,7 +269,7 @@ function LootHistory.ClearAll()
     LootHistory.BackupRuns("before clear all")   -- recoverable via RestoreBackup
     ns.db.lootHistory = { runs = {} }
     currentRunId = nil
-    ns.P("Cleared loot history. (Recover with |cFFFFCC00/rl restorehistory|r.)")
+    ns.P("Cleared loot history. (Recover with |cFFFFCC00/raidlead restorehistory|r.)")
 end
 
 function LootHistory.DeleteRun(runId)
@@ -560,7 +560,7 @@ function LootHistory.LoadMockData()
     -- NON-DESTRUCTIVE: never wipe real history. Back it up first, then drop
     -- only pre-existing mock runs and add fresh ones ALONGSIDE real runs.
     -- (Previously this did `ns.db.lootHistory = { runs = {} }`, which
-    -- destroyed real raid history when someone ran /rl mock.)
+    -- destroyed real raid history when someone ran /raidlead mock.)
     LootHistory.BackupRuns("before mock load")
     LootHistory.RemoveMockRuns()
 

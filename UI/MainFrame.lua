@@ -343,8 +343,8 @@ soloMsg = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 soloMsg:SetPoint("CENTER", f, "CENTER", 0, 0)
 soloMsg:SetText("|cFFAAAAAA" .. "You are not in a group or raid.\n\n" ..
     "Join a party or raid and click |cFF" .. ns.ACCENT .. "Refresh|r\n" ..
-    "or type |cFF" .. ns.ACCENT .. "/rl scan|r to inspect buffs.\n\n" ..
-    "Or type |cFF" .. ns.ACCENT .. "/rl mock|r to load test data.|r")
+    "or type |cFF" .. ns.ACCENT .. "/raidlead scan|r to inspect buffs.\n\n" ..
+    "Or type |cFF" .. ns.ACCENT .. "/raidlead mock|r to load test data.|r")
 soloMsg:SetJustifyH("CENTER")
 soloMsg:Hide()
 ns.soloMsg = soloMsg

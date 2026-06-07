@@ -244,7 +244,7 @@ function HealAssign.AutoAssign()
 
     if not ns.BuffScan or not ns.BuffScan.scanResults
        or next(ns.BuffScan.scanResults) == nil then
-        ns.P("|cFFFF8800Auto-Assign:|r No raid scan data yet. Run |cFFFFCC00/rl scan|r first.")
+        ns.P("|cFFFF8800Auto-Assign:|r No raid scan data yet. Run |cFFFFCC00/raidlead scan|r first.")
         return
     end
 

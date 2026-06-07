@@ -8,8 +8,11 @@ local ADDON_NAME, ns = ...
 ----------------------------------------------------------------------
 -- Slash commands
 ----------------------------------------------------------------------
+-- NOTE: do NOT register "/rl" — it's a built-in WoW alias for /reload, so
+-- some players' clients fire a UI reload instead of this addon. Use the
+-- full "/raidlead" or the safe short alias "/rlead".
 SLASH_RAIDLEAD1 = "/raidlead"
-SLASH_RAIDLEAD2 = "/rl"
+SLASH_RAIDLEAD2 = "/rlead"
 
 SlashCmdList["RAIDLEAD"] = function(msg)
     msg = (msg or ""):trim()
@@ -132,26 +135,27 @@ SlashCmdList["RAIDLEAD"] = function(msg)
 
     elseif cmd == "help" then
         ns.P("v" .. ns.ADDON_VERSION .. " \226\128\148 Commands:")
-        ns.P("  |cFFFFCC00/rl|r \226\128\148 Toggle main panel")
-        ns.P("  |cFFFFCC00/rl scan|r \226\128\148 Force re-scan buffs")
-        ns.P("  |cFFFFCC00/rl mock|r \226\128\148 Load mock test data (solo testing)")
-        ns.P("  |cFFFFCC00/rl clearmock|r \226\128\148 Remove mock loot history (keep real data)")
-        ns.P("  |cFFFFCC00/rl restorehistory|r \226\128\148 Restore raid history from the last backup")
-        ns.P("  |cFFFFCC00/rl announce|r \226\128\148 Post all missing to raid/party")
-        ns.P("  |cFFFFCC00/rl announce buffs|r \226\128\148 Post missing consumables only")
-        ns.P("  |cFFFFCC00/rl announce raidbuffs|r \226\128\148 Post missing raid buffs only")
-        ns.P("  |cFFFFCC00/rl sync|r \226\128\148 Pull boss assignments from group")
-        ns.P("  |cFFFFCC00/rl mark|r \226\128\148 Mark visible hostiles (Skull, Cross, \226\128\166)")
-        ns.P("  |cFFFFCC00/rl marknext|r \226\128\148 Mark your target with the next icon (|cFFFFCC00reset|r to restart)")
-        ns.P("  |cFFFFCC00/rl settings|r \226\128\148 Open settings")
-        ns.P("  |cFFFFCC00/rl debug|r \226\128\148 Toggle debug mode")
-        ns.P("  |cFFFFCC00/rl roletest [name]|r \226\128\148 Open the role-check popup locally")
-        ns.P("  |cFFFFCC00/rl vertest [x.y.z]|r \226\128\148 Simulate a peer with a newer version")
-        ns.P("  |cFFFFCC00/rl vertestclear|r \226\128\148 Clear the simulated peer version")
-        ns.P("  |cFFFFCC00/rl help|r \226\128\148 This message")
+        ns.P("  |cFF888888(short alias: |r|cFFFFCC00/rlead|r|cFF888888)|r")
+        ns.P("  |cFFFFCC00/raidlead|r \226\128\148 Toggle main panel")
+        ns.P("  |cFFFFCC00/raidlead scan|r \226\128\148 Force re-scan buffs")
+        ns.P("  |cFFFFCC00/raidlead mock|r \226\128\148 Load mock test data (solo testing)")
+        ns.P("  |cFFFFCC00/raidlead clearmock|r \226\128\148 Remove mock loot history (keep real data)")
+        ns.P("  |cFFFFCC00/raidlead restorehistory|r \226\128\148 Restore raid history from the last backup")
+        ns.P("  |cFFFFCC00/raidlead announce|r \226\128\148 Post all missing to raid/party")
+        ns.P("  |cFFFFCC00/raidlead announce buffs|r \226\128\148 Post missing consumables only")
+        ns.P("  |cFFFFCC00/raidlead announce raidbuffs|r \226\128\148 Post missing raid buffs only")
+        ns.P("  |cFFFFCC00/raidlead sync|r \226\128\148 Pull boss assignments from group")
+        ns.P("  |cFFFFCC00/raidlead mark|r \226\128\148 Mark visible hostiles (Skull, Cross, \226\128\166)")
+        ns.P("  |cFFFFCC00/raidlead marknext|r \226\128\148 Mark your target with the next icon (|cFFFFCC00reset|r to restart)")
+        ns.P("  |cFFFFCC00/raidlead settings|r \226\128\148 Open settings")
+        ns.P("  |cFFFFCC00/raidlead debug|r \226\128\148 Toggle debug mode")
+        ns.P("  |cFFFFCC00/raidlead roletest [name]|r \226\128\148 Open the role-check popup locally")
+        ns.P("  |cFFFFCC00/raidlead vertest [x.y.z]|r \226\128\148 Simulate a peer with a newer version")
+        ns.P("  |cFFFFCC00/raidlead vertestclear|r \226\128\148 Clear the simulated peer version")
+        ns.P("  |cFFFFCC00/raidlead help|r \226\128\148 This message")
 
     else
-        ns.P("Unknown command: |cFFFF4444" .. cmd .. "|r \226\128\148 type |cFFFFCC00/rl help|r")
+        ns.P("Unknown command: |cFFFF4444" .. cmd .. "|r \226\128\148 type |cFFFFCC00/raidlead help|r")
     end
 end
 
@@ -159,7 +163,7 @@ end
 SLASH_RAIDSPY1 = "/raidspy"
 SLASH_RAIDSPY2 = "/rs"
 SlashCmdList["RAIDSPY"] = function(msg)
-    ns.P("|cFFFFCC00Note:|r RaidSpy is now RaidLead. Use |cFFFFCC00/rl|r instead.")
+    ns.P("|cFFFFCC00Note:|r RaidSpy is now RaidLead. Use |cFFFFCC00/raidlead|r instead.")
     SlashCmdList["RAIDLEAD"](msg)
 end
 
@@ -258,7 +262,7 @@ loader:SetScript("OnEvent", function(self, event, ...)
         self:UnregisterEvent("ADDON_LOADED")
 
     elseif event == "PLAYER_LOGIN" then
-        ns.P("v" .. ns.ADDON_VERSION .. " loaded. Type |cFFFFCC00/rl|r to open.")
+        ns.P("v" .. ns.ADDON_VERSION .. " loaded. Type |cFFFFCC00/raidlead|r (or |cFFFFCC00/rlead|r) to open.")
         -- Stamp our own version into the version store so self-lookups work.
         -- UnitName("player") is reliable only from PLAYER_LOGIN onward.
         if ns.Versions and ns.Versions.RecordSelf then

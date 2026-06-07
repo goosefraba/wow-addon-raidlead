@@ -169,7 +169,10 @@ function BossTemplates.SendLines(lines, channel)
     local sent = 0
     for _, line in ipairs(lines) do
         for _, chunk in ipairs(SplitLongLine(line)) do
-            SendChatMessage(chunk, channel)
+            -- SendChatMessage silently drops any message containing the '|'
+            -- escape char, so strip it. (Raid-target markers like {rt8} have
+            -- no pipe and are unaffected.)
+            SendChatMessage((chunk:gsub("|", "")), channel)
             sent = sent + 1
         end
     end

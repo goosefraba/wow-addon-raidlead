@@ -1,5 +1,13 @@
 # RaidLead Changelog
 
+## v1.6.2
+
+### Bug Fixes
+- **Magtheridon announce fixed.** Clicking Announce only printed the header and Main Tank — the per-channeler tank/clicker lines were silently dropped because they contained a `|` character, which `SendChatMessage` rejects. The separator was changed and all boss announces now strip `|` defensively, so every line sends.
+
+### Changes
+- **`/rl` is no longer used** — it's a built-in WoW alias for `/reload`, which made some clients reload the UI instead of opening the addon. Use **`/raidlead`** or the new short alias **`/rlead`**. All in-game help and prompts were updated.
+
 ## v1.6.1
 
 ### New Features

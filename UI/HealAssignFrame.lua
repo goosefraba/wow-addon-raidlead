@@ -589,7 +589,7 @@ local function BuildRosterSummary()
     end
 
     if total == 0 then
-        rosterSummary:SetText("|cFF888888No raid members yet. Open the addon or run /rl scan.|r")
+        rosterSummary:SetText("|cFF888888No raid members yet. Open the addon or run /raidlead scan.|r")
         return
     end
 

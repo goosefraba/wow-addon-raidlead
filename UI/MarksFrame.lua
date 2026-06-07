@@ -70,7 +70,7 @@ markNextBtn:HookScript("OnEnter", function(self)
         .. "advancing each click. Target a mob \226\134\146 click; repeat down the pack.",
         0.8, 0.8, 0.8, true)
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Right-click: reset to Skull. Also: /rl marknext (macro it).", 0.85, 0.55, 0.2, true)
+    GameTooltip:AddLine("Right-click: reset to Skull. Also: /raidlead marknext (macro it).", 0.85, 0.55, 0.2, true)
     GameTooltip:Show()
 end)
 markNextBtn:HookScript("OnLeave", function(self)

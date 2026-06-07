@@ -189,7 +189,7 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
             local clicker = ns.BossTemplates.GetAssignment(BOSS_KEY, cube.key, PHASE_KEY, 1) or "?"
             local ctank   = ns.BossTemplates.GetAssignment(BOSS_KEY, cube.key, PHASE_KEY, 2) or "?"
             local iconStr = ns.GetRaidIconText(cube.iconIdx)
-            lines[#lines + 1] = iconStr .. " Tank: " .. ctank .. " | Cube: " .. clicker
+            lines[#lines + 1] = iconStr .. " Tank: " .. ctank .. "  -  Cube: " .. clicker
         end
         return lines
     end
