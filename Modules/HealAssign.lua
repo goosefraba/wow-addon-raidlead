@@ -474,37 +474,51 @@ local function ClassFor(playerName)
     return "UNKNOWN"
 end
 
+-- Gold marker that flags the local player's own assignment lines so they
+-- stand out at a glance in the compact view.
+local MINE_MARK = "|cFFFFD200>|r "
+
 function HealAssign.BuildHealersCompactText()
     local healers = HealAssign.GetHealers()
     if #healers == 0 then return "" end
 
+    local me = UnitName("player")
+
     local dedicated = {}
     local cross     = {}
     local es        = {}
+    local meInCross = false
 
     for _, h in ipairs(healers) do
+        local mine = (h.name == me)
         local cfg = HealAssign.GetConfig(h.name) or { mode = "cross" }
         if cfg.mode == "dedicated" and cfg.target then
-            dedicated[#dedicated + 1] =
-                CompactHealerName(h.name, h.class) .. " -> " ..
+            local line = CompactHealerName(h.name, h.class) .. " -> " ..
                 CompactHealerName(cfg.target, ClassFor(cfg.target))
+            dedicated[#dedicated + 1] = mine and (MINE_MARK .. line) or line
         elseif cfg.mode == "cross" then
-            cross[#cross + 1] = CompactHealerName(h.name, h.class)
+            local n = CompactHealerName(h.name, h.class)
+            if mine then
+                n = "|cFFFFD200[|r" .. n .. "|cFFFFD200]|r"
+                meInCross = true
+            end
+            cross[#cross + 1] = n
         end
         if h.class == "SHAMAN" and cfg.mode ~= "none" and cfg.earthShield then
-            es[#es + 1] =
-                CompactHealerName(h.name, h.class) .. " -> " ..
+            local line = CompactHealerName(h.name, h.class) .. " -> " ..
                 CompactHealerName(cfg.earthShield, ClassFor(cfg.earthShield))
+            es[#es + 1] = { text = line, mine = mine }
         end
     end
 
     local lines = {}
     for _, l in ipairs(dedicated) do lines[#lines + 1] = l end
     if #cross > 0 then
-        lines[#lines + 1] = "|cFFAAAAAACross:|r " .. table.concat(cross, ", ")
+        local prefix = meInCross and MINE_MARK or ""
+        lines[#lines + 1] = prefix .. "|cFFAAAAAACross:|r " .. table.concat(cross, ", ")
     end
-    for _, l in ipairs(es) do
-        lines[#lines + 1] = "|cFF55D5FFES:|r " .. l
+    for _, e in ipairs(es) do
+        lines[#lines + 1] = (e.mine and MINE_MARK or "") .. "|cFF55D5FFES:|r " .. e.text
     end
     return table.concat(lines, "\n")
 end
@@ -514,13 +528,14 @@ function HealAssign.BuildMisdirectsCompactText()
     local hunters = HealAssign.GetHunters()
     if #hunters == 0 then return "" end
 
+    local me = UnitName("player")
     local lines = {}
     for _, h in ipairs(hunters) do
         local target = ns.db.misdirects[h.name]
         if target then
-            lines[#lines + 1] =
-                CompactHealerName(h.name, h.class) .. " -> " ..
+            local line = CompactHealerName(h.name, h.class) .. " -> " ..
                 CompactHealerName(target, ClassFor(target))
+            lines[#lines + 1] = (h.name == me) and (MINE_MARK .. line) or line
         end
     end
     return table.concat(lines, "\n")

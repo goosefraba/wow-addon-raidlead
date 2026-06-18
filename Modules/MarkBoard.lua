@@ -227,17 +227,27 @@ end
 -- Compact one-line-per-icon view for the live overlay.
 function MarkBoard.BuildCompactText()
     if not EnsureDB() then return "" end
+    local me = UnitName("player")
     local lines = {}
     for icon = 1, 8 do
         local rec = ns.db.markBoard[icon]
         if rec then
             local parts = {}
+            local mine = false
             for _, r in ipairs(MarkBoard.ROLES) do
-                if rec[r.key] then parts[#parts + 1] = r.label:sub(1, 1) .. ":" .. rec[r.key] end
+                if rec[r.key] then
+                    local seg = r.label:sub(1, 1) .. ":" .. rec[r.key]
+                    if rec[r.key] == me then
+                        seg = "|cFFFFD200" .. seg .. "|r"   -- highlight your own role
+                        mine = true
+                    end
+                    parts[#parts + 1] = seg
+                end
             end
             if #parts > 0 then
                 local tex = ns.GetRaidIconTexture(icon)
                 local prefix = tex and ("|T" .. tex .. ":14|t ") or ""
+                if mine then prefix = "|cFFFFD200>|r " .. prefix end
                 lines[#lines + 1] = prefix .. table.concat(parts, "  ")
             end
         end

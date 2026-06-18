@@ -292,9 +292,16 @@ local function CreateGridRow(index)
     end)
 
     -- Columns
+    -- Addon-presence dot: green = has RaidLead (current), yellow = older
+    -- version, hidden = no addon detected.
+    row.addonDot = row:CreateTexture(nil, "OVERLAY")
+    row.addonDot:SetSize(10, 10)
+    row.addonDot:SetPoint("LEFT", row, "TOPLEFT", 3, -10)
+    row.addonDot:Hide()
+
     row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    row.nameText:SetPoint("TOPLEFT", row, "TOPLEFT", 4, -3)
-    row.nameText:SetWidth(COL_NAME_W)
+    row.nameText:SetPoint("TOPLEFT", row, "TOPLEFT", 16, -3)
+    row.nameText:SetWidth(COL_NAME_W - 12)
     row.nameText:SetJustifyH("LEFT")
     row.nameText:SetWordWrap(false)
 
@@ -447,6 +454,19 @@ local function RefreshGridTab()
             local name = scanSorted[dataIdx]
             local r = scanResults[name]
             row.data = r
+
+            -- Addon-presence dot (independent of buff state): green = has
+            -- RaidLead at our version or newer, yellow = older, hidden = none.
+            local ver = ns.Versions and ns.Versions.GetVersion and ns.Versions.GetVersion(name)
+            if ver then
+                local cmp = ns.Versions.CompareToMine and ns.Versions.CompareToMine(ver)
+                row.addonDot:SetTexture((cmp and cmp < 0)
+                    and "Interface\\COMMON\\Indicator-Yellow"
+                    or  "Interface\\COMMON\\Indicator-Green")
+                row.addonDot:Show()
+            else
+                row.addonDot:Hide()
+            end
 
             if dataIdx % 2 == 0 then
                 row.baseR, row.baseG, row.baseB, row.baseA = 0.12, 0.12, 0.15, 0.8

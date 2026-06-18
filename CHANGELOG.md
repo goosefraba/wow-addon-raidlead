@@ -1,5 +1,18 @@
 # RaidLead Changelog
 
+## v2.0.0
+
+### New Features
+- **Full boss roster on the Boss tab.** Every Karazhan, Gruul's Lair, Magtheridon's Lair, Serpentshrine Cavern, and Tempest Keep boss is now selectable, where before only a handful were. Bosses without an assignment template get a clean placeholder page; simple ones get a generic role-assignment widget automatically.
+- **Boss mechanics info button.** A read-only info button on each boss opens a scrollable, formatted breakdown of the fight - phases, key abilities, and practical raid-leader tactics. Built to support multiple tactics per boss (a pill selector appears when a boss has more than one).
+- **Verified tactics.** Every boss's mechanics were checked against authoritative TBC guides and corrected, with execution-level tips added (e.g. keep Strawman burning so he can't cast, prioritize Netherspite's green beam, Bloodlust the Curator's Evocation window).
+- **Void Reaver** added with a full tank + orb-kiter assignment config.
+- **Addon-presence dot in the grid.** A small dot by each player's name shows who is running RaidLead: green = current version, yellow = older version, none = no addon detected.
+
+### Improvements
+- **Compact view redesign for faster scanning.** Section headers are now colour-coded with icons (skull for Boss, heal cross for Healers, Bloodlust for Cooldowns, etc.), and your own assignment is highlighted in gold across the Healers, Marks, and Misdirect sections so you can find your job instantly.
+- The compact Boss section now always shows a hint when no boss is selected instead of looking blank.
+
 ## v1.6.2
 
 ### Bug Fixes

@@ -612,21 +612,43 @@ compactFrame:SetScript("OnMouseUp", function(self, button)
     }, "cursor", 0, 0)
 end)
 
+-- Compact-view section icons + colour-coded headers for fast scanning.
+local function CIcon(path) return "|T" .. path .. ":13:13:0:0:64:64:5:59:5:59|t " end
+local function CRaid(n)
+    local t = ns.GetRaidIconTexture and ns.GetRaidIconTexture(n)
+    return t and ("|T" .. t .. ":13|t ") or ""
+end
+local _compactHeaders
+local function CHeader(key)
+    if not _compactHeaders then
+        _compactHeaders = {
+            marks     = CRaid(1)                                       .. "|cFFFF9933Marks|r",
+            healers   = CIcon("Interface\\Icons\\Spell_Holy_Heal")        .. "|cFF66DD66Healers|r",
+            cooldowns = CIcon("Interface\\Icons\\Spell_Nature_Bloodlust")  .. "|cFF66CCFFCooldowns|r",
+            misdirect = CIcon("Interface\\Icons\\Ability_Hunter_Misdirection") .. "|cFFCC88FFMisdirect|r",
+        }
+    end
+    return _compactHeaders[key] or ("|cFFFFCC00" .. key .. "|r")
+end
+
 function ns.UpdateCompactDisplay()
     if not ns.db or not ns.db.settings.compactMode then return end
     local s = ns.db.settings
     local sections = {}
 
-    -- Boss assignments section
+    -- Boss assignments section (skull icon prefixes the boss name). Always
+    -- shows something while enabled, so the toggle never looks broken.
     if s.compactShowBoss then
         local widget = ns.GetActiveBossWidget and ns.GetActiveBossWidget()
-        if widget and widget.BuildCompactText then
-            local txt = widget.BuildCompactText()
-            if txt and txt ~= "" then
-                sections[#sections + 1] = txt
-            end
-        elseif ns.GetActiveBossKey and ns.GetActiveBossKey() then
-            sections[#sections + 1] = "|cFF888888(no compact view for this boss)|r"
+        local key    = ns.GetActiveBossKey and ns.GetActiveBossKey()
+        local txt    = widget and widget.BuildCompactText and widget.BuildCompactText()
+        if txt and txt ~= "" then
+            sections[#sections + 1] = CRaid(8) .. txt
+        elseif key then
+            sections[#sections + 1] = CRaid(8) .. "|cFF888888(no assignments set for this boss)|r"
+        else
+            sections[#sections + 1] = CRaid(8)
+                .. "|cFF888888No boss selected - open the Boss tab to pick one.|r"
         end
     end
 
@@ -634,7 +656,7 @@ function ns.UpdateCompactDisplay()
     if s.compactShowMarks and ns.MarkBoard and ns.MarkBoard.BuildCompactText then
         local txt = ns.MarkBoard.BuildCompactText()
         if txt and txt ~= "" then
-            sections[#sections + 1] = "|cFFFFCC00Marks|r\n" .. txt
+            sections[#sections + 1] = CHeader("marks") .. "\n" .. txt
         end
     end
 
@@ -642,7 +664,7 @@ function ns.UpdateCompactDisplay()
     if s.compactShowHealers and ns.HealAssign and ns.HealAssign.BuildHealersCompactText then
         local txt = ns.HealAssign.BuildHealersCompactText()
         if txt and txt ~= "" then
-            sections[#sections + 1] = "|cFFFFCC00Healers|r\n" .. txt
+            sections[#sections + 1] = CHeader("healers") .. "\n" .. txt
         end
     end
 
@@ -650,7 +672,7 @@ function ns.UpdateCompactDisplay()
     if s.compactShowCooldowns and ns.CooldownAssign and ns.CooldownAssign.BuildCompactText then
         local txt = ns.CooldownAssign.BuildCompactText()
         if txt and txt ~= "" then
-            sections[#sections + 1] = "|cFFFFCC00Cooldowns|r\n" .. txt
+            sections[#sections + 1] = CHeader("cooldowns") .. "\n" .. txt
         end
     end
 
@@ -658,7 +680,7 @@ function ns.UpdateCompactDisplay()
     if s.compactShowMisdirects and ns.HealAssign and ns.HealAssign.BuildMisdirectsCompactText then
         local txt = ns.HealAssign.BuildMisdirectsCompactText()
         if txt and txt ~= "" then
-            sections[#sections + 1] = "|cFFFFCC00Misdirect|r\n" .. txt
+            sections[#sections + 1] = CHeader("misdirect") .. "\n" .. txt
         end
     end
 
