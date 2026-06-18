@@ -1,6 +1,6 @@
 # RaidLead Changelog
 
-## v2.0.0
+## v1.7.0
 
 ### New Features
 - **Full boss roster on the Boss tab.** Every Karazhan, Gruul's Lair, Magtheridon's Lair, Serpentshrine Cavern, and Tempest Keep boss is now selectable, where before only a handful were. Bosses without an assignment template get a clean placeholder page; simple ones get a generic role-assignment widget automatically.
