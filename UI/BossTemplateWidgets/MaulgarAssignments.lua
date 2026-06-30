@@ -51,8 +51,10 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     end)
     scanBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- Failsafe scan: if not in a zone with marked mobs, just clears labels
-    local function UpdateDetectedLabels()
+    -- Failsafe scan: if not in a zone with marked mobs, just clears labels.
+    -- quiet = true skips the "nothing found" chat line (used by the live
+    -- Target Sweep refresh so it doesn't spam).
+    local function UpdateDetectedLabels(quiet)
         local detected = {}
         if ns.ScanMarkedMobs then
             local ok, result = pcall(ns.ScanMarkedMobs)
@@ -71,11 +73,15 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
                 lbl:SetText("")
             end
         end
-        if not foundAny then
-            ns.P("|cFF888888No marked mobs detected. Make sure you/raid members target the marked council members.|r")
+        if not foundAny and not quiet then
+            ns.P("|cFF888888No marked mobs detected. Target the marked council members, or use Target Sweep for far ones.|r")
         end
     end
-    scanBtn:SetScript("OnClick", UpdateDetectedLabels)
+    scanBtn:SetScript("OnClick", function() UpdateDetectedLabels(false) end)
+
+    -- Target Sweep: target/mouse over far council members to read their marks.
+    local sweepBtn = ns.MakeSweepButton(widget, function() UpdateDetectedLabels(true) end, 110)
+    sweepBtn:SetPoint("RIGHT", scanBtn, "LEFT", -6, 0)
 
     --------------------------------------------------------------------
     -- Column layout (healer assignments live in the global Healers tab)

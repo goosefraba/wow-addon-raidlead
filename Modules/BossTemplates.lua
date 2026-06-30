@@ -520,6 +520,12 @@ if ns.Comm then
 
     ns.Comm.RegisterHandler("REQUEST_SYNC", function(parts, sender)
         if not sender or sender == "" then return end
+        -- Only the raid leader / assistants answer a sync request. Before,
+        -- EVERY addon user replied with their whole state, so a burst of
+        -- requests produced an N-by-N whisper flood that disconnected the
+        -- raid. Leader/assist data is authoritative and identical, so a
+        -- handful of responders is enough.
+        if ns.CanBroadcast and not ns.CanBroadcast() then return end
         local now = GetTime()
         if lastResponseTo[sender] and (now - lastResponseTo[sender]) < RESPONSE_COOLDOWN then
             return

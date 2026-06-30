@@ -208,6 +208,45 @@ function ns.MakeSmallButton(parent, label, w, h)
 end
 
 ----------------------------------------------------------------------
+-- Target Sweep toggle button. Drives ns.MarkSweep (Core/Utils.lua):
+-- click to start, then target / mouse over each marked mob (no range
+-- limit), click again to stop. onUpdate is called whenever a new mark is
+-- captured so the caller can refresh its detected-mob labels live.
+----------------------------------------------------------------------
+function ns.MakeSweepButton(parent, onUpdate, w)
+    local btn = ns.MakeSmallButton(parent, "Target Sweep", w or 110, 22)
+    local function sync()
+        if ns.MarkSweep and ns.MarkSweep.active then
+            btn:SetText("|cFFFF6666Stop Sweep|r")
+        else
+            btn:SetText("Target Sweep")
+        end
+    end
+    btn:SetScript("OnClick", function()
+        if not ns.MarkSweep then return end
+        if ns.MarkSweep.active then
+            ns.MarkSweep.Stop()
+        else
+            ns.MarkSweep.Start(onUpdate)
+        end
+        sync()
+    end)
+    btn:HookScript("OnShow", sync)
+    btn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Target Sweep", 1, 0.82, 0.1)
+        GameTooltip:AddLine("For marks that are too far for the normal scan. "
+            .. "Click, then target (or mouse over) each marked enemy one at a "
+            .. "time - their icons fill in here. Click again to stop.",
+            0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    btn.SyncSweepLabel = sync
+    return btn
+end
+
+----------------------------------------------------------------------
 -- Section header bar — for "Healers", "Compact View", boss sections etc.
 -- Returns a Frame with:
 --   - subtle dark background

@@ -388,9 +388,45 @@ quickPollBtn:HookScript("OnEnter", function(self)
 end)
 quickPollBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
+-- Chat role check - asks the whole raid (incl. non-addon players) for
+-- their role in chat and sets it from their replies. Leader / assist only.
+local chatRoleBtn = ns.MakeSmallButton(rosterHeader, "Ask Roles (chat)", 130, 22)
+chatRoleBtn:SetPoint("RIGHT", quickPollBtn, "LEFT", -6, 0)
+local function syncChatRoleBtn()
+    if ns.Roles and ns.Roles.IsChatRoleCheckActive and ns.Roles.IsChatRoleCheckActive() then
+        chatRoleBtn:SetText("|cFFFF6666Stop Asking|r")
+    else
+        chatRoleBtn:SetText("Ask Roles (chat)")
+    end
+end
+chatRoleBtn:SetScript("OnClick", function()
+    if not ns.Roles then return end
+    if ns.Roles.IsChatRoleCheckActive and ns.Roles.IsChatRoleCheckActive() then
+        ns.Roles.StopChatRoleCheck()
+    elseif ns.Roles.StartChatRoleCheck then
+        ns.Roles.StartChatRoleCheck(syncChatRoleBtn)
+    end
+    syncChatRoleBtn()
+end)
+chatRoleBtn:HookScript("OnShow", syncChatRoleBtn)
+chatRoleBtn:HookScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("Ask Roles in chat", 1, 0.82, 0.1)
+    GameTooltip:AddLine(
+        "Posts a role question to raid/party chat and reads the replies "
+        .. "(chat or whisper) - works for players WITHOUT the addon. Each "
+        .. "answer sets that player's role automatically. Click again to stop.",
+        0.8, 0.8, 0.8, true)
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("Leader or assistant only.", 0.85, 0.55, 0.2, true)
+    GameTooltip:Show()
+end)
+chatRoleBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+
 local function UpdateQuickPollBtn()
     local can = ns.CanBroadcast and ns.CanBroadcast() or false
     quickPollBtn:SetShown(can)
+    chatRoleBtn:SetShown(can)
 end
 ns.UpdateQuickPollButton = UpdateQuickPollBtn
 UpdateQuickPollBtn()

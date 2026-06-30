@@ -178,6 +178,10 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     end)
     scanBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
+    -- Target Sweep: target/mouse over channelers spread around the room.
+    local sweepBtn = ns.MakeSweepButton(widget, UpdateDetectedLabels, 110)
+    sweepBtn:SetPoint("RIGHT", scanBtn, "LEFT", -6, 0)
+
     --------------------------------------------------------------------
     -- Announce
     --------------------------------------------------------------------

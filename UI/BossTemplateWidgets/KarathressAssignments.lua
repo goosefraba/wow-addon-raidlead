@@ -40,7 +40,7 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
     end)
     scanBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local function UpdateDetectedLabels()
+    local function UpdateDetectedLabels(quiet)
         local detected = {}
         if ns.ScanMarkedMobs then
             local ok, result = pcall(ns.ScanMarkedMobs)
@@ -59,11 +59,15 @@ ns.RegisterBossWidget(BOSS_KEY, function(parent)
                 end
             end
         end
-        if not foundAny then
-            ns.P("|cFF888888No marked mobs detected. Make sure someone targets the marked council mobs.|r")
+        if not foundAny and not quiet then
+            ns.P("|cFF888888No marked mobs detected. Target the marked mobs, or use Target Sweep for far ones.|r")
         end
     end
-    scanBtn:SetScript("OnClick", UpdateDetectedLabels)
+    scanBtn:SetScript("OnClick", function() UpdateDetectedLabels(false) end)
+
+    -- Target Sweep: target/mouse over far advisors to read their marks.
+    local sweepBtn = ns.MakeSweepButton(widget, function() UpdateDetectedLabels(true) end, 110)
+    sweepBtn:SetPoint("RIGHT", scanBtn, "LEFT", -6, 0)
 
     local ICON_SIZE   = 20
     local LABEL_W     = 70

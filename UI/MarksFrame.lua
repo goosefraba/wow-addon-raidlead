@@ -78,6 +78,14 @@ markNextBtn:HookScript("OnLeave", function(self)
     GameTooltip:Hide()
 end)
 
+-- Target Sweep — read marks on mobs too far for the normal Scan: click,
+-- target/mouse over each marked mob, click again to stop.
+local sweepBtn = ns.MakeSweepButton(content, function()
+    if MB.ScanAndUpdate then MB.ScanAndUpdate() end
+    RefreshMarks()
+end, 110)
+sweepBtn:SetPoint("LEFT", markNextBtn, "RIGHT", 6, 0)
+
 -- Quick-Mark All (amber) — batch-mark a gathered in-range pack.
 local quickBtn = ns.MakeSmallButton(content, "Quick-Mark All", 115, 22)
 quickBtn:SetPoint("TOPRIGHT", content, "TOPRIGHT", -4, 0)

@@ -5,7 +5,7 @@
 local ADDON_NAME, ns = ...
 
 ns.ADDON_NAME    = ADDON_NAME
-ns.ADDON_VERSION = "1.7.0"
+ns.ADDON_VERSION = "1.7.1"
 ns.VERSION       = ns.ADDON_VERSION  -- alias used by version-compare paths
 ns.ACCENT        = "FF9933"
 ns.PREFIX        = "|cFF" .. ns.ACCENT .. "[RaidLead]|r "
@@ -174,7 +174,74 @@ function ns.ScanMarkedMobs()
         end
     end
 
+    -- Merge in anything captured by a Target Sweep (manually targeting /
+    -- mousing over far-away marked mobs). Nameplate/group-target scanning
+    -- misses out-of-range mobs; the sweep does not.
+    if ns.MarkSweep and ns.MarkSweep.results then
+        for idx, name in pairs(ns.MarkSweep.results) do
+            if not detected[idx] then detected[idx] = { name = name, count = 1 } end
+        end
+    end
+
     return detected
+end
+
+----------------------------------------------------------------------
+-- Target Sweep: a manual mode for reading marks on mobs that are out of
+-- nameplate range. While active, every time you target OR mouse over a
+-- marked enemy, its icon -> name is recorded. There is no range limit on
+-- reading your target/mouseover, so this catches spread-out council mobs
+-- (e.g. Maulgar) that nameplate scanning can't see. ScanMarkedMobs merges
+-- these results, so the boss widgets pick them up automatically.
+----------------------------------------------------------------------
+ns.MarkSweep = { active = false, results = {} }
+
+local sweepFrame = CreateFrame("Frame")
+local sweepOnUpdate
+
+local function SweepConsider(unit)
+    if not UnitExists(unit) or UnitIsPlayer(unit) then return end
+    local idx = GetRaidTargetIndex(unit)
+    if not idx then return end
+    local name = UnitName(unit)
+    if not name then return end
+    ns.MarkSweep.results[idx] = name
+    if sweepOnUpdate then sweepOnUpdate() end
+end
+
+sweepFrame:SetScript("OnEvent", function(_, event)
+    if not ns.MarkSweep.active then return end
+    if event == "PLAYER_TARGET_CHANGED" then
+        SweepConsider("target")
+    elseif event == "UPDATE_MOUSEOVER_UNIT" then
+        SweepConsider("mouseover")
+    end
+end)
+
+function ns.MarkSweep.Start(onUpdate)
+    ns.MarkSweep.results = {}
+    ns.MarkSweep.active  = true
+    sweepOnUpdate        = onUpdate
+    sweepFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+    sweepFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+    -- Grab whatever is already targeted/hovered right away.
+    SweepConsider("target")
+    SweepConsider("mouseover")
+    ns.P("|cFF88CCFFTarget Sweep on.|r Target or mouse over each marked mob; click again to stop.")
+end
+
+function ns.MarkSweep.Stop()
+    ns.MarkSweep.active = false
+    sweepOnUpdate       = nil
+    sweepFrame:UnregisterEvent("PLAYER_TARGET_CHANGED")
+    sweepFrame:UnregisterEvent("UPDATE_MOUSEOVER_UNIT")
+    local n = 0
+    for _ in pairs(ns.MarkSweep.results) do n = n + 1 end
+    ns.P("|cFF88CCFFTarget Sweep off.|r Captured " .. n .. " marked mob(s).")
+end
+
+function ns.MarkSweep.Clear()
+    ns.MarkSweep.results = {}
 end
 
 ----------------------------------------------------------------------

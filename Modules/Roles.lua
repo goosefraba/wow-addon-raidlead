@@ -106,6 +106,26 @@ local function StoreLocal(playerName, role)
     ns.db.roles[playerName] = role
 end
 
+-- Apply a role tagged with its SOURCE:
+--   "self"    - the player chose it themselves (authoritative)
+--   "derived" - inferred from a chat role check (shared, but lower priority)
+-- A derived role never overwrites a self-declared one, so a player's own
+-- setting always wins. Returns true if the store actually changed.
+local function ApplyRole(playerName, role, source)
+    if not EnsureDB() then return false end
+    if not playerName or playerName == "" then return false end
+    if role == "" then role = nil end
+    source = (source == "derived") and "derived" or "self"
+    ns.db.roleSource = ns.db.roleSource or {}
+    if source == "derived" and ns.db.roleSource[playerName] == "self" then
+        return false   -- respect the player's own choice
+    end
+    ns.db.roles[playerName]      = role
+    ns.db.roleSource[playerName] = role and source or nil
+    return true
+end
+Roles.ApplyRole = ApplyRole
+
 function Roles.SetMyRole(role)
     if not EnsureDB() then return end
     if role == "" then role = nil end
@@ -113,13 +133,14 @@ function Roles.SetMyRole(role)
 
     local me = UnitName("player")
     if me then
-        ns.db.roles[me] = role
+        -- Your own choice is authoritative ("self" source).
+        ApplyRole(me, role, "self")
     end
 
     ns.D("Roles.SetMyRole -> " .. tostring(role))
 
     if not Roles._suppressBroadcast and ns.Comm and me then
-        ns.Comm.Send("ROLE_SET", me, role or "")
+        ns.Comm.Send("ROLE_SET", me, role or "", "self")
     end
 end
 
@@ -211,21 +232,119 @@ function Roles.SendRoleCheck()
 end
 
 ----------------------------------------------------------------------
+-- Chat role check: ask the WHOLE raid (including players without the
+-- addon) for their role in chat. The lead scans chat + whisper replies
+-- and sets each player's role locally, so healer / role assignments work
+-- even when not everyone runs RaidLead.
+----------------------------------------------------------------------
+local CHAT_ROLE_DURATION = 90   -- safety auto-stop (seconds)
+
+local roleChatFrame  = CreateFrame("Frame")
+local roleChatActive = false
+local roleChatOnUpdate
+local roleChatCount  = 0
+
+-- Map one chat line to a role key, or nil. Deliberately tolerant of the
+-- common shorthands but ignores long sentences so normal chatter is not
+-- mistaken for a reply.
+local function ParseRole(text)
+    if not text then return nil end
+    local m = tostring(text):lower():gsub("^%s+", ""):gsub("%s+$", "")
+    if m == "" or #m > 24 then return nil end
+    if #m == 1 then
+        local one = { t = "tank", h = "healer", m = "melee", r = "ranged" }
+        return one[m]
+    end
+    if m:find("tank", 1, true)  or m:find("prot", 1, true)   then return "tank" end
+    if m:find("heal", 1, true)  or m == "resto" or m == "holy" or m == "disc" then return "healer" end
+    if m:find("melee", 1, true) or m == "mdps"               then return "melee" end
+    if m:find("range", 1, true) or m:find("caster", 1, true) or m == "rdps" then return "ranged" end
+    return nil
+end
+Roles.ParseRole = ParseRole
+
+local ROLE_CHAT_EVENTS = {
+    "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER",
+    "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
+    "CHAT_MSG_WHISPER",
+}
+
+roleChatFrame:SetScript("OnEvent", function(_, event, text, sender)
+    if not roleChatActive then return end
+    local name = sender and sender:match("^[^-]+") or sender   -- strip realm
+    if not name or name == "" then return end
+    local role = ParseRole(text)
+    if not role then return end
+    -- "derived" - won't override a player's own self-declared role.
+    if not ApplyRole(name, role, "derived") then return end
+    roleChatCount = roleChatCount + 1
+    ns.P("|cFF88CCFF[roles]|r " .. name .. " -> " .. (Roles.ROLE_LABELS[role] or role))
+    -- Share the derived role with other RaidLead users (they apply the
+    -- same self-wins precedence).
+    if ns.Comm then ns.Comm.Send("ROLE_SET", name, role, "derived") end
+    if ns.RefreshHealAssign  then ns.RefreshHealAssign()  end
+    if ns.RefreshGridTab     then ns.RefreshGridTab()     end
+    if ns.RefreshRolesRoster then ns.RefreshRolesRoster() end
+    if roleChatOnUpdate then roleChatOnUpdate() end
+end)
+
+function Roles.IsChatRoleCheckActive() return roleChatActive end
+
+function Roles.StartChatRoleCheck(onUpdate)
+    if ns.CanBroadcast and not ns.CanBroadcast() then
+        ns.P("|cFFFF8800Only the raid leader or an assistant can run a role check.|r")
+        return false
+    end
+
+    local channel = ns.BuffScan and ns.BuffScan.GetAnnounceChannel
+        and ns.BuffScan.GetAnnounceChannel()
+    if channel then
+        SendChatMessage("[RaidLead] Role check - reply with your role:", channel)
+        SendChatMessage("  tank / heal / melee / ranged   (or whisper me)", channel)
+    end
+
+    roleChatActive   = true
+    roleChatOnUpdate = onUpdate
+    roleChatCount    = 0
+    for _, e in ipairs(ROLE_CHAT_EVENTS) do roleChatFrame:RegisterEvent(e) end
+    ns.P("|cFF88CCFFRole check on.|r Reading chat/whisper replies; click again to stop.")
+
+    C_Timer.After(CHAT_ROLE_DURATION, function()
+        if roleChatActive then Roles.StopChatRoleCheck() end
+    end)
+    return true
+end
+
+function Roles.StopChatRoleCheck()
+    if not roleChatActive then return end
+    roleChatActive = false
+    roleChatFrame:UnregisterAllEvents()
+    local cb = roleChatOnUpdate
+    roleChatOnUpdate = nil
+    ns.P("|cFF88CCFFRole check off.|r Set " .. roleChatCount .. " role(s) from chat.")
+    if cb then cb() end
+end
+
+----------------------------------------------------------------------
 -- Comm handlers
 ----------------------------------------------------------------------
 if ns.Comm then
     ns.Comm.RegisterHandler("ROLE_SET", function(parts, sender)
         local playerName = parts[2]
         local role       = parts[3]
+        local source     = parts[4]   -- "self" | "derived"; absent (old clients) = self
         if not playerName or playerName == "" then return end
         if role == "" then role = nil end
 
-        StoreLocal(playerName, role)
-        ns.D("Roles: received ROLE_SET " .. playerName .. " -> " .. tostring(role))
-
-        if ns.RefreshHealAssign   then ns.RefreshHealAssign()   end
-        if ns.RefreshGridTab      then ns.RefreshGridTab()      end
-        if ns.RefreshRolesRoster  then ns.RefreshRolesRoster()  end
+        -- ApplyRole enforces "self beats derived", so a synced derived role
+        -- can't clobber a player's own setting.
+        if ApplyRole(playerName, role, source) then
+            ns.D("Roles: ROLE_SET " .. playerName .. " -> " .. tostring(role)
+                .. " (" .. (source == "derived" and "derived" or "self") .. ")")
+            if ns.RefreshHealAssign   then ns.RefreshHealAssign()   end
+            if ns.RefreshGridTab      then ns.RefreshGridTab()      end
+            if ns.RefreshRolesRoster  then ns.RefreshRolesRoster()  end
+        end
     end)
 
     ns.Comm.RegisterHandler("ROLE_REQ", function(parts, sender)

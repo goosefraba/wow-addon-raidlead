@@ -188,6 +188,7 @@ SafeRegister(loader, "RAID_ROSTER_UPDATE")
 
 -- State for auto-sync on join
 local wasInGroup = false
+local firstEnterDone = false   -- only the first PLAYER_ENTERING_WORLD syncs
 local lastSyncRequest = 0
 local SYNC_THROTTLE = 30  -- seconds
 
@@ -280,10 +281,18 @@ loader:SetScript("OnEvent", function(self, event, ...)
         self:UnregisterEvent("PLAYER_LOGIN")
 
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Fires on login, /reload, and zone change. If already in a group
-        -- (e.g. /reload while in raid), pull current state.
-        if ns.GetGroupType() ~= "solo" then
-            MaybeAutoSync("PLAYER_ENTERING_WORLD")
+        -- Fires on login, /reload, AND every zone / instance change. Only
+        -- the FIRST one (login or /reload) triggers an auto-sync. Later ones
+        -- are zone changes: on an instance transition the WHOLE raid fires
+        -- this at the same moment, and a synchronized group-wide sync storm
+        -- floods the addon channel and disconnects everyone. State is
+        -- already synced, and a genuine new member re-syncs via
+        -- GROUP_ROSTER_UPDATE below, so we skip the sync on zone changes.
+        if not firstEnterDone then
+            firstEnterDone = true
+            if ns.GetGroupType() ~= "solo" then
+                MaybeAutoSync("initial enter (login/reload)")
+            end
         end
 
     elseif event == "GROUP_ROSTER_UPDATE"

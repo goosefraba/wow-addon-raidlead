@@ -1,5 +1,14 @@
 # RaidLead Changelog
 
+## v1.7.1
+
+### Bug Fixes
+- **Fixed mass disconnects on instance transitions.** When the raid zoned into or out of an instance, every RaidLead user re-requested a full sync at the same moment, and every user answered everyone else - an N-by-N burst of addon messages that tripped the server's anti-spam and disconnected the raid. RaidLead now only auto-syncs on login / `/reload` (not on every zone change), and only the raid leader / assistants answer a sync request. Live assignment changes still propagate normally.
+
+### New Features
+- **Target Sweep.** For marks that are too far away for the normal scan (e.g. spread-out council mobs at Maulgar), a new Target Sweep button lets you read marks by simply targeting or mousing over each mob one at a time - no range limit. Available on the Maulgar, Karathress, and Magtheridon templates and the Marks tab.
+- **Ask Roles in chat.** A new role check that works for players WITHOUT the addon: it posts a role question to chat and reads the replies (chat or whisper), setting each player's role automatically so healer/role assignments have accurate data. Derived roles sync to other RaidLead users but never override a player's own self-declared role.
+
 ## v1.7.0
 
 ### New Features
