@@ -6,8 +6,13 @@
 - **Fixed mass disconnects on instance transitions.** When the raid zoned into or out of an instance, every RaidLead user re-requested a full sync at the same moment, and every user answered everyone else - an N-by-N burst of addon messages that tripped the server's anti-spam and disconnected the raid. RaidLead now only auto-syncs on login / `/reload` (not on every zone change), and only the raid leader / assistants answer a sync request. Live assignment changes still propagate normally.
 
 ### New Features
-- **Target Sweep.** For marks that are too far away for the normal scan (e.g. spread-out council mobs at Maulgar), a new Target Sweep button lets you read marks by simply targeting or mousing over each mob one at a time - no range limit. Available on the Maulgar, Karathress, and Magtheridon templates and the Marks tab.
-- **Ask Roles in chat.** A new role check that works for players WITHOUT the addon: it posts a role question to chat and reads the replies (chat or whisper), setting each player's role automatically so healer/role assignments have accurate data. Derived roles sync to other RaidLead users but never override a player's own self-declared role.
+- **Role poll ("Ask Roles in chat").** A role check that works for players WITHOUT the addon: it posts a role question to raid/party chat and reads the replies (chat or whisper), setting each player's role automatically so healer / role assignments have accurate data even when not everyone runs RaidLead. Find it on the Assign tab's Roster header (leader / assist only).
+- **Role results now sync.** Roles discovered via the role poll are shared with other RaidLead users, exactly like assignments and settings already sync - but a synced / derived role never overrides a player's own self-declared role.
+- **Target Sweep.** For marks too far away for the normal scan (e.g. spread-out council mobs at Maulgar), a new Target Sweep button reads marks by simply targeting or mousing over each mob one at a time - no range limit. On the Maulgar, Karathress, and Magtheridon templates and the Marks tab.
+
+### Also included (from v1.6.2, never previously released here)
+- **`/rl` is gone - use `/raidlead` (or `/rlead`).** `/rl` is WoW's built-in alias for `/reload`, so some clients reloaded the UI instead of opening the addon. All in-game help and prompts were updated.
+- **Magtheridon announce fix.** The Tanks & Cube Clickers announce previously printed only the header and Main Tank; all channeler lines now send (a `|` character in the line was being dropped by the chat API).
 
 ## v1.7.0
 
