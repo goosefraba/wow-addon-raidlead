@@ -12,6 +12,7 @@ ns.SETTINGS_DEFAULTS = {
     trackWeaponEnchant = false,   -- weapon oils/stones (self-reported; opt-in)
     autoScan       = true,
     debug          = false,
+    combatAutoReset = false,   -- Combat tab: clear the log at each pull start
     compactMode    = false,
     bossLocked     = true,        -- protect boss configs from accidental changes
     -- Compact view options
@@ -22,6 +23,8 @@ ns.SETTINGS_DEFAULTS = {
     compactShowHealers     = false,
     compactShowCooldowns   = false,
     compactShowMisdirects  = false,
+    compactShowHealerMana  = false,  -- live healer mana readout
+    compactShowRezWatch    = false,  -- live Battle Rez / Innervate availability
 }
 
 ns.FRAME_DEFAULTS = {

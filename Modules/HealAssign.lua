@@ -163,13 +163,27 @@ end
 -- Roster helpers (read from BuffScan's scan results)
 ----------------------------------------------------------------------
 
--- Returns sorted list of healer-class players: { {name=, class=}, ... }
+-- Returns the sorted list of actual healers: { {name=, class=}, ... }
+-- Role-aware (mirrors AutoAssign): a player is a healer if they DECLARED the
+-- healer role; if they declared a non-healer role (a shadow priest as ranged,
+-- a ret pala as melee, etc.) they're excluded; if they declared nothing we
+-- fall back to their class being healer-capable. So without role data the
+-- behavior is unchanged, and once roles are set the list is accurate.
 function HealAssign.GetHealers()
     local healers = {}
     if not ns.BuffScan or not ns.BuffScan.scanResults then return healers end
 
     for name, r in pairs(ns.BuffScan.scanResults) do
-        if r.class and HealAssign.HEALER_CLASSES[r.class] then
+        local declared = ns.Roles and ns.Roles.GetRole and ns.Roles.GetRole(name)
+        local include
+        if declared == "healer" then
+            include = true
+        elseif declared then                 -- declared a non-healer role
+            include = false
+        else
+            include = (r.class and HealAssign.HEALER_CLASSES[r.class]) and true or false
+        end
+        if include then
             healers[#healers + 1] = { name = name, class = r.class }
         end
     end
@@ -539,6 +553,104 @@ function HealAssign.BuildMisdirectsCompactText()
         end
     end
     return table.concat(lines, "\n")
+end
+
+-- Live healer-mana readout for the compact view. Reads UnitPower(unit, 0)
+-- (mana) for each heal-class raid member; sorted lowest mana first so the
+-- lead instantly sees who is about to go dry.
+-- Read live mana for every healer. Returns:
+--   rows  = sorted { name, class, pct, dead, mine } (lowest known % first)
+--   avg   = integer average of KNOWN mana %, or nil if none readable
+--   known = count of healers with a readable mana %
+--   deadN = count of dead / disconnected healers
+function HealAssign.GetHealerMana()
+    local healers = HealAssign.GetHealers()
+    if #healers == 0 then return {}, nil, 0, 0 end
+
+    -- Map member name -> unit token so we can read live power.
+    local unitOf = {}
+    local units = ns.BuildUnitList and ns.BuildUnitList() or {}
+    for _, u in ipairs(units) do
+        local n = UnitName(u)
+        if n then unitOf[n] = u end
+    end
+    local me = UnitName("player")
+    if me and not unitOf[me] then unitOf[me] = "player" end
+
+    local rows, sum, known, deadN = {}, 0, 0, 0
+    for _, h in ipairs(healers) do
+        local u = unitOf[h.name]
+        local pct, dead
+        if u and UnitExists(u) then
+            if (UnitIsDeadOrGhost and UnitIsDeadOrGhost(u)) or (UnitIsConnected and not UnitIsConnected(u)) then
+                dead = true
+            else
+                local maxm = UnitPowerMax(u, 0) or 0
+                if maxm > 0 then pct = (UnitPower(u, 0) or 0) / maxm * 100 end
+            end
+        end
+        if pct  then sum = sum + pct; known = known + 1 end
+        if dead then deadN = deadN + 1 end
+        rows[#rows + 1] = { name = h.name, class = h.class, pct = pct, dead = dead, mine = (h.name == me) }
+    end
+
+    -- Lowest known mana first; dead / unknown sink to the bottom.
+    table.sort(rows, function(a, b)
+        local ka = a.pct or (a.dead and 1000 or 1001)
+        local kb = b.pct or (b.dead and 1000 or 1001)
+        if ka ~= kb then return ka < kb end
+        return a.name < b.name
+    end)
+
+    local avg = (known > 0) and math.floor(sum / known + 0.5) or nil
+    return rows, avg, known, deadN
+end
+
+local function ManaColor(p)
+    return (p >= 60) and "FF66DD66" or (p >= 30) and "FFFFCC00" or "FFFF5555"
+end
+
+local function ManaValueStr(r)
+    if r.dead    then return "|cFF888888dead|r" end
+    if not r.pct then return "|cFF888888--|r"   end
+    local p = math.floor(r.pct + 0.5)
+    return "|c" .. ManaColor(p) .. p .. "%|r"
+end
+
+-- Compact section: overall AVERAGE + the single lowest healer (the
+-- actionable bit). The full per-player list is shown on hover via the
+-- compact panel tooltip (see UI/MainFrame.lua).
+function HealAssign.BuildHealerManaCompactText()
+    local rows, avg, known, deadN = HealAssign.GetHealerMana()
+    if #rows == 0 then return "" end
+    if known == 0 then
+        return "|cFF888888(no mana readings - need a live group)|r"
+    end
+
+    local parts = {}
+    parts[#parts + 1] = "avg |c" .. ManaColor(avg) .. avg .. "%|r"
+    for _, r in ipairs(rows) do          -- lowest-first, so first with a pct is the lowest
+        if r.pct then
+            parts[#parts + 1] = "|cFF888888low|r " .. CompactHealerName(r.name, r.class)
+                .. " " .. ManaValueStr(r)
+            break
+        end
+    end
+    if deadN > 0 then
+        parts[#parts + 1] = "|cFFFF5555" .. deadN .. " dead|r"
+    end
+    return table.concat(parts, "    ")
+end
+
+-- Full per-healer list (lowest first) as tooltip-ready lines.
+function HealAssign.BuildHealerManaListLines()
+    local rows = HealAssign.GetHealerMana()
+    local lines = {}
+    for _, r in ipairs(rows) do
+        lines[#lines + 1] = (r.mine and MINE_MARK or "")
+            .. CompactHealerName(r.name, r.class) .. "   " .. ManaValueStr(r)
+    end
+    return lines
 end
 
 ----------------------------------------------------------------------

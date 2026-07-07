@@ -5,7 +5,7 @@
 local ADDON_NAME, ns = ...
 
 ns.ADDON_NAME    = ADDON_NAME
-ns.ADDON_VERSION = "1.7.1"
+ns.ADDON_VERSION = "1.8.0"
 ns.VERSION       = ns.ADDON_VERSION  -- alias used by version-compare paths
 ns.ACCENT        = "FF9933"
 ns.PREFIX        = "|cFF" .. ns.ACCENT .. "[RaidLead]|r "

@@ -369,7 +369,11 @@ local function RebuildTabButtons()
     for _, btn in pairs(tabButtons) do btn:Hide() end
     tabButtons = {}
 
-    local tabW = 72
+    -- Size tabs to fit the minimum window width so adding a tab never
+    -- pushes the last one off the edge. Clamp so they stay readable.
+    local n = #registeredTabs
+    local tabW = math.floor((MIN_W - 32 - (n - 1) * 4) / math.max(1, n))
+    tabW = math.max(52, math.min(72, tabW))
     for i, tab in ipairs(registeredTabs) do
         local btn = CreateFrame("Button", nil, f)
         btn:SetSize(tabW, 22)
@@ -411,6 +415,13 @@ end
 -- only there; on Boss/Roles/Polls/Profile it must stay hidden.
 local function UpdateSoloMsg()
     if not soloMsg then return end
+    -- In compact mode the overlay owns the window; never toggle full-view tab
+    -- content here (a roster update calls this directly and would otherwise
+    -- render the grid on top of the compact overlay).
+    if ns.db and ns.db.settings and ns.db.settings.compactMode then
+        soloMsg:Hide()
+        return
+    end
     local isBuffTab = (activeTab == "Grid")
     local isSolo = isBuffTab
         and ns.GetGroupType() == "solo"
@@ -423,6 +434,17 @@ end
 ns.UpdateSoloMsg = UpdateSoloMsg
 
 function ns.ShowTab(name)
+    -- In compact mode the overlay owns the window. A background scan / roster
+    -- update can route through here (via RefreshUI); if we let it show the tab
+    -- content + bottom bar, the full grid renders on top of the compact
+    -- overlay. So just remember the tab and refresh the overlay instead.
+    if ns.db and ns.db.settings and ns.db.settings.compactMode then
+        activeTab = name or activeTab
+        if ns.bottomBar then ns.bottomBar:Hide() end
+        if ns.UpdateCompactDisplay then ns.UpdateCompactDisplay() end
+        return
+    end
+
     -- Rebuild buttons if not yet created
     if not next(tabButtons) then RebuildTabButtons() end
 
@@ -603,6 +625,8 @@ compactFrame:SetScript("OnMouseUp", function(self, button)
         tog("Boss mechanics",     "compactShowBoss",      refresh),
         tog("Marks (tanks/CC)",   "compactShowMarks",     refresh),
         tog("Healer assignments", "compactShowHealers",   refresh),
+        tog("Healer mana (live)", "compactShowHealerMana", refresh),
+        tog("Combat Report (rez/inn/MD)", "compactShowRezWatch", refresh),
         tog("Cooldowns",          "compactShowCooldowns", refresh),
         tog("Misdirect",          "compactShowMisdirects", refresh),
         { text = "Appearance", isTitle = true },
@@ -610,6 +634,61 @@ compactFrame:SetScript("OnMouseUp", function(self, button)
             if ns.ApplyCompactAppearance then ns.ApplyCompactAppearance() end
         end),
     }, "cursor", 0, 0)
+end)
+
+-- Hovering the compact panel shows FULL detail for the live sections that
+-- have a per-player breakdown: Healer Mana (the section shows avg/lowest; the
+-- hover shows the full list) and the Combat Report (who has Battle Rez /
+-- Innervate / Misdirect ready, soulstones, who's down). Fill (re)builds the
+-- lines; the owner/anchor is set once on enter so live refreshes don't jump.
+local function FillCompactTooltip()
+    if not (ns.db and ns.db.settings) then GameTooltip:Hide(); return end
+    local s = ns.db.settings
+    GameTooltip:ClearLines()
+    local added = false
+
+    if s.compactShowHealerMana and ns.HealAssign and ns.HealAssign.BuildHealerManaListLines then
+        local lines = ns.HealAssign.BuildHealerManaListLines()
+        if #lines > 0 then
+            GameTooltip:AddLine("Healer Mana", 1, 0.82, 0.1)
+            for _, l in ipairs(lines) do GameTooltip:AddLine(l, 1, 1, 1) end
+            added = true
+        end
+    end
+
+    if s.compactShowRezWatch and ns.CombatReport and ns.CombatReport.BuildTooltipLines then
+        local lines = ns.CombatReport.BuildTooltipLines()
+        if #lines > 0 then
+            if added then GameTooltip:AddLine(" ") end   -- spacer between blocks
+            GameTooltip:AddLine("Combat Report", 1, 0.82, 0.1)
+            for _, l in ipairs(lines) do GameTooltip:AddLine(l, 1, 1, 1) end
+            added = true
+        end
+    end
+
+    if not added then GameTooltip:Hide(); return end
+    GameTooltip:Show()
+end
+
+local function ShowCompactTooltip()
+    if not (ns.db and ns.db.settings and ns.db.settings.compactMode) then return end
+    local s = ns.db.settings
+    if not (s.compactShowHealerMana or s.compactShowRezWatch) then return end
+    -- Anchor at the cursor so it appears right next to the mouse.
+    GameTooltip:SetOwner(compactFrame, "ANCHOR_CURSOR")
+    FillCompactTooltip()
+end
+
+-- Live-refresh the tooltip contents without re-anchoring (called by the ticker).
+local function RefreshCompactTooltip()
+    if GameTooltip:GetOwner() ~= compactFrame or not GameTooltip:IsShown() then return end
+    FillCompactTooltip()
+end
+ns.ShowCompactTooltip    = ShowCompactTooltip
+ns.RefreshCompactTooltip = RefreshCompactTooltip
+compactFrame:SetScript("OnEnter", ShowCompactTooltip)
+compactFrame:SetScript("OnLeave", function()
+    if GameTooltip:GetOwner() == compactFrame then GameTooltip:Hide() end
 end)
 
 -- Compact-view section icons + colour-coded headers for fast scanning.
@@ -622,10 +701,12 @@ local _compactHeaders
 local function CHeader(key)
     if not _compactHeaders then
         _compactHeaders = {
-            marks     = CRaid(1)                                       .. "|cFFFF9933Marks|r",
-            healers   = CIcon("Interface\\Icons\\Spell_Holy_Heal")        .. "|cFF66DD66Healers|r",
-            cooldowns = CIcon("Interface\\Icons\\Spell_Nature_Bloodlust")  .. "|cFF66CCFFCooldowns|r",
-            misdirect = CIcon("Interface\\Icons\\Ability_Hunter_Misdirection") .. "|cFFCC88FFMisdirect|r",
+            marks      = CRaid(1)                                       .. "|cFFFF9933Marks|r",
+            healers    = CIcon("Interface\\Icons\\Spell_Holy_Heal")        .. "|cFF66DD66Healers|r",
+            cooldowns  = CIcon("Interface\\Icons\\Spell_Nature_Bloodlust")  .. "|cFF66CCFFCooldowns|r",
+            misdirect  = CIcon("Interface\\Icons\\Ability_Hunter_Misdirection") .. "|cFFCC88FFMisdirect|r",
+            healermana = CIcon("Interface\\Icons\\Spell_Nature_ManaRegeneration") .. "|cFF66AAFFHealer Mana|r",
+            rezwatch   = CIcon("Interface\\Icons\\Spell_Nature_Reincarnation") .. "|cFF66FFAACombat Report|r",
         }
     end
     return _compactHeaders[key] or ("|cFFFFCC00" .. key .. "|r")
@@ -684,12 +765,46 @@ function ns.UpdateCompactDisplay()
         end
     end
 
+    -- Live healer mana (lowest first)
+    if s.compactShowHealerMana and ns.HealAssign and ns.HealAssign.BuildHealerManaCompactText then
+        local txt = ns.HealAssign.BuildHealerManaCompactText()
+        if txt and txt ~= "" then
+            sections[#sections + 1] = CHeader("healermana") .. "\n" .. txt
+        end
+    end
+
+    -- Live Battle Rez / Innervate availability (Combat Report)
+    if s.compactShowRezWatch and ns.CombatReport and ns.CombatReport.BuildCompactText then
+        local txt = ns.CombatReport.BuildCompactText()
+        if txt and txt ~= "" then
+            sections[#sections + 1] = CHeader("rezwatch") .. "\n" .. txt
+        end
+    end
+
     if #sections == 0 then
         compactText:SetText("|cFF888888Nothing to show. Right-click to pick sections.|r")
     else
         compactText:SetText(table.concat(sections, "\n\n"))
     end
 end
+
+-- Live-refresh loop for the time-sensitive compact sections (healer mana,
+-- Battle Rez / Innervate countdowns). Only rebuilds while compact mode and
+-- at least one live section are on, at ~1.5 Hz.
+local manaTicker = CreateFrame("Frame")
+local manaAccum = 0
+manaTicker:SetScript("OnUpdate", function(_, elapsed)
+    manaAccum = manaAccum + elapsed
+    if manaAccum < 0.7 then return end
+    manaAccum = 0
+    local s = ns.db and ns.db.settings
+    if s and s.compactMode and (s.compactShowHealerMana or s.compactShowRezWatch) then
+        ns.UpdateCompactDisplay()
+        -- Keep the hover detail live while it's open over the compact panel
+        -- (refresh contents only; don't re-anchor, so it stays put).
+        RefreshCompactTooltip()
+    end
+end)
 
 local NORMAL_W, NORMAL_H = ns.MIN_W, ns.MIN_H
 local COMPACT_W, COMPACT_H = 380, 200
@@ -837,7 +952,7 @@ end
 -- Settings panel — tabbed (General / Buff Scanner / Compact View)
 ----------------------------------------------------------------------
 do
-    local SP_W, SP_H = 360, 480
+    local SP_W, SP_H = 360, 560
     local sp = CreateFrame("Frame", "RaidLeadSettings", UIParent)
     sp:SetSize(SP_W, SP_H)
     sp:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
@@ -1151,6 +1266,8 @@ do
         local compactBossToggle    = ShowToggle("Boss mechanics",     "The active boss's assignments.",          "compactShowBoss")
         local compactMarksToggle   = ShowToggle("Marks (tanks / CC)", "Tank / CC / interrupt per raid icon.",     "compactShowMarks")
         local compactHealersToggle = ShowToggle("Healer assignments", "Global healer assignments.",               "compactShowHealers")
+        local compactManaToggle    = ShowToggle("Healer mana (live)", "Live mana % of each healer, lowest first.", "compactShowHealerMana")
+        local compactRezToggle     = ShowToggle("Combat Report", "Live Battle Rez / Innervate / Misdirect availability + who's down.", "compactShowRezWatch")
         local compactCDToggle      = ShowToggle("Cooldowns",          "Raid cooldown assignments.",               "compactShowCooldowns")
         local compactMDToggle      = ShowToggle("Misdirect",          "Hunter misdirect assignments.",            "compactShowMisdirects")
 
@@ -1159,6 +1276,8 @@ do
             compactBossToggle.Refresh()
             compactMarksToggle.Refresh()
             compactHealersToggle.Refresh()
+            compactManaToggle.Refresh()
+            compactRezToggle.Refresh()
             compactCDToggle.Refresh()
             compactMDToggle.Refresh()
             if ns.db and ns.db.settings then

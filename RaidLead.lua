@@ -95,6 +95,15 @@ SlashCmdList["RAIDLEAD"] = function(msg)
         if ns.db and ns.db.settings then ns.db.settings.debug = ns.DEBUG end
         ns.P("Debug " .. (ns.DEBUG and "|cFF44FF44ON|r" or "|cFFFF4444OFF|r"))
 
+    elseif cmd == "cdtest" then
+        -- Solo test: inject a fake Innervate + Battle Rez so the Combat tab
+        -- populates without a real druid group.
+        if ns.CombatReport and ns.CombatReport.InjectTest then
+            ns.CombatReport.InjectTest()
+            if not f:IsShown() then f:Show() end
+            if ns.ShowTab then ns.ShowTab("Combat") end
+        end
+
     elseif cmd == "roletest" then
         -- Solo test: open the role-check popup as if a fake leader sent one.
         local who = (rest and rest ~= "" and rest) or "Tester"
@@ -149,6 +158,7 @@ SlashCmdList["RAIDLEAD"] = function(msg)
         ns.P("  |cFFFFCC00/raidlead marknext|r \226\128\148 Mark your target with the next icon (|cFFFFCC00reset|r to restart)")
         ns.P("  |cFFFFCC00/raidlead settings|r \226\128\148 Open settings")
         ns.P("  |cFFFFCC00/raidlead debug|r \226\128\148 Toggle debug mode")
+        ns.P("  |cFFFFCC00/raidlead cdtest|r \226\128\148 Inject a test Innervate + Battle Rez (Combat tab)")
         ns.P("  |cFFFFCC00/raidlead roletest [name]|r \226\128\148 Open the role-check popup locally")
         ns.P("  |cFFFFCC00/raidlead vertest [x.y.z]|r \226\128\148 Simulate a peer with a newer version")
         ns.P("  |cFFFFCC00/raidlead vertestclear|r \226\128\148 Clear the simulated peer version")

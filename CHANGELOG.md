@@ -1,5 +1,25 @@
 # RaidLead Changelog
 
+## v1.8.0
+
+### New Features
+- **Combat Report (new "Combat" tab).** A live tracker of the raid's key utility cooldowns, read straight from the combat log (no addon messages, so it can never contribute to channel spam). It tracks:
+  - **Druid Innervate & Battle Rez** and **Hunter Misdirection** - a readiness board shows each caster as *Ready* or a live countdown.
+  - **Deaths** and **Warlock Soulstones** - folded into a **combat-rez pool** ("how many people can we bring back": ready Battle Rezzes + active Soulstones) and a **per-death rez plan** (who's down and who should rez them).
+  - A **timeline** of casts & deaths (who cast what on whom, and when).
+  - **Clear Log** resets the pull log but keeps the cooldown timers (they're real-world time - a 20-min Battle Rez legitimately spans pulls); an optional **auto-clear each pull** is available. The logger only runs while you're in a group.
+- **Live healer mana in the compact view.** A section showing the overall **average** healer mana plus the **lowest** healer, colour-coded. Hover the panel for the full per-healer list (at your cursor, live-updating, lowest first).
+- **Combat Report in the compact view.** A live section with the combat-rez pool and Innervate / Misdirect readiness, plus who's down. Hover the panel to see exactly **who** has each thing ready.
+- **Role poll: numbers + one-click for addon users.** The chat role check now asks for a **number** (1 = Tank, 2 = Heal, 3 = Melee, 4 = Ranged) instead of typed words, and players who also run RaidLead get the **in-addon role popup** automatically - one click sets and syncs their role, no typing. Non-addon players still reply in chat.
+
+### Improvements
+- **Healer lists are role-aware.** Declared DPS of a healer class (shadow priest, ret paladin, boomkin, elemental/enhancement shaman) are now excluded from healer assignments and the mana readout. Falls back to class when roles aren't set, so run the role poll for an accurate list.
+- The tab bar now auto-sizes so every tab fits on screen.
+
+### Bug Fixes
+- **Fixed the compact overlay overlapping the full view.** A scan or roster update while in compact mode could render the full grid (and bottom bar) on top of the compact overlay. Compact mode now stays clean through background updates.
+- The compact healer-mana hover now appears next to the mouse instead of offset to the side.
+
 ## v1.7.1
 
 ### Bug Fixes

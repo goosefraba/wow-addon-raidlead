@@ -251,7 +251,12 @@ local function ParseRole(text)
     if not text then return nil end
     local m = tostring(text):lower():gsub("^%s+", ""):gsub("%s+$", "")
     if m == "" or #m > 24 then return nil end
+    -- Numeric replies are the preferred form (what the chat prompt asks
+    -- for): 1 = Tank, 2 = Heal, 3 = Melee, 4 = Ranged.
+    local num = { ["1"] = "tank", ["2"] = "healer", ["3"] = "melee", ["4"] = "ranged" }
+    if num[m] then return num[m] end
     if #m == 1 then
+        -- Still tolerate single-letter shorthand (t/h/m/r) as a fallback.
         local one = { t = "tank", h = "healer", m = "melee", r = "ranged" }
         return one[m]
     end
@@ -299,9 +304,16 @@ function Roles.StartChatRoleCheck(onUpdate)
     local channel = ns.BuffScan and ns.BuffScan.GetAnnounceChannel
         and ns.BuffScan.GetAnnounceChannel()
     if channel then
-        SendChatMessage("[RaidLead] Role check - reply with your role:", channel)
-        SendChatMessage("  tank / heal / melee / ranged   (or whisper me)", channel)
+        SendChatMessage("[RaidLead] Role check - reply with a NUMBER:", channel)
+        SendChatMessage("  1 = Tank   2 = Heal   3 = Melee   4 = Ranged   (or whisper me)", channel)
     end
+
+    -- Players who ALSO run RaidLead get the in-addon popup instead of having
+    -- to type: one click sets their role and syncs it back (self-declared,
+    -- which beats any chat-derived guess). Non-addon players still reply in
+    -- chat. Our own broadcast is filtered by the Comm layer, so the lead
+    -- doesn't get a popup here.
+    if ns.Comm then ns.Comm.Send("ROLE_CHECK") end
 
     roleChatActive   = true
     roleChatOnUpdate = onUpdate
