@@ -1,5 +1,10 @@
 # RaidLead Changelog
 
+## v1.8.1
+
+### Compatibility
+- Updated for **TBC Classic 2.5.6** (Interface 20506). 2.5.6 is a service/backend-only patch with no gameplay or API changes, so this is a compatibility bump only - no functional changes.
+
 ## v1.8.0
 
 ### New Features

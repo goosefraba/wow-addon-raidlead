@@ -1,8 +1,8 @@
-﻿## Interface: 20505
+﻿## Interface: 20506
 ## Title: RaidLead
 ## Notes: Raid management: buff scanner, healer assignments, boss templates.
 ## Author: goosefraba
-## Version: 1.8.0
+## Version: 1.8.1
 ## SavedVariables: RaidLeadDB
 
 BuffData.lua
