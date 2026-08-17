@@ -1,9 +1,9 @@
 ----------------------------------------------------------------------
 -- RaidLead — UI/CombatReportFrame.lua
 -- "Combat" tab: the Combat Report. A live readiness board for key raid
--- cooldowns (Druid Innervate + Battle Rez), a combat-rez pool + per-death
--- rez plan (incl. Warlock Soulstones), and a timeline of casts & deaths.
--- Backed by Modules/CombatReport.lua.
+-- cooldowns (Druid Innervate + Battle Rez, Hunter Misdirection), a
+-- combat-rez pool + per-death rez plan (incl. Warlock Soulstones), and a
+-- timeline of casts & deaths. Backed by Modules/CombatReport.lua.
 ----------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
@@ -16,6 +16,16 @@ content:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -10,  10)
 content:Hide()
 
 local fmtTime = CR.FmtTime
+
+-- Class-colored name; Cn takes an explicit class, CcOf looks it up.
+-- Declared up here so every closure below (log-row tooltips, Refresh)
+-- captures them as upvalues rather than compiling a global lookup.
+local function Cn(name, class)
+    return ns.ClassColor(class or "UNKNOWN") .. (name or "?") .. "|r"
+end
+local function CcOf(name)  -- look the class up (death victims / rez targets vary)
+    return ns.ClassColor(ns.ClassOf(name)) .. (name or "?") .. "|r"
+end
 
 local KIND_ORDER = { "innervate", "rebirth", "misdirect" }
 local COL_NAME   = 0
@@ -131,21 +141,17 @@ local function CellText(p, kind)
     -- Only the class that owns the spell gets a real cell; others show a dash.
     local meta = CR.KINDS[kind]
     if meta and meta.class and meta.class ~= p.class then return "|cFF444444-|r" end
-    local st = p.unit and CR.UnitStatus(p.unit) or "alive"
-    if st == "offline" then return "|cFF777777offline|r" end
-    if st == "dead"    then return "|cFFFF6644dead|r"    end
-    local rem = CR.Remaining(p.name, kind)
-    if rem <= 0 then return "|cFF44FF44Ready|r" end
-    return "|cFFFFCC00" .. fmtTime(rem) .. "|r"
+    -- The rest (offline / dead / Ready / countdown) is shared with the tooltip.
+    return CR.ReadinessText(p, kind)
 end
 
-local noDruids = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-noDruids:SetPoint("TOPLEFT", content, "TOPLEFT", 8, READY_START_Y)
-noDruids:SetPoint("RIGHT",   content, "RIGHT", -8, 0)
-noDruids:SetJustifyH("LEFT")
-noDruids:SetTextColor(0.6, 0.6, 0.6)
-noDruids:SetText("No druids or hunters detected. (Tracked: Innervate, Battle Rez, Misdirection.)")
-noDruids:Hide()
+local noTracked = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+noTracked:SetPoint("TOPLEFT", content, "TOPLEFT", 8, READY_START_Y)
+noTracked:SetPoint("RIGHT",   content, "RIGHT", -8, 0)
+noTracked:SetJustifyH("LEFT")
+noTracked:SetTextColor(0.6, 0.6, 0.6)
+noTracked:SetText("No druids or hunters detected. (Tracked: Innervate, Battle Rez, Misdirection.)")
+noTracked:Hide()
 
 -- Soulstone holders (they aren't druids, so they're not in the board above;
 -- this line makes the "+ N Soulstone" part of the pool visible).
@@ -165,15 +171,76 @@ logEmpty:SetTextColor(0.55, 0.55, 0.55)
 logEmpty:SetText("No casts or deaths yet since the last reset.")
 logEmpty:Hide()
 
+-- Log scroll state. logOffset 0 = pinned to the newest entry; higher values
+-- page further into the past. Refresh() clamps it to what actually fits, and
+-- lastEventCount lets us keep the view anchored when new events arrive.
+local logOffset      = 0
+local lastEventCount = 0
+
+local Refresh   -- forward declaration: the wheel handlers below call it
+
+-- Wheel down (delta -1) scrolls into the past, wheel up returns to newest.
+local function ScrollLog(delta)
+    local before = logOffset
+    logOffset = math.max(0, logOffset - delta)
+    if logOffset ~= before and Refresh then Refresh() end
+end
+
+-- Wheel anywhere on the tab scrolls the log (the rows themselves are
+-- mouse-enabled for tooltips, so they get their own handler in GetLogRow).
+content:EnableMouseWheel(true)
+content:SetScript("OnMouseWheel", function(_, delta) ScrollLog(delta) end)
+
+-- Per-kind wording for the "target" line in the hover tooltip.
+local TARGET_VERB = { innervate = "Granted to", rebirth = "Rez target", misdirect = "Redirect to" }
+
+-- Log rows are mouse-enabled frames so hovering shows the full detail (who a
+-- cast was granted to, etc.) - the inline text truncates on a narrow window.
 local logRows = {}
 local function GetLogRow(i)
-    local fs = logRows[i]
-    if fs then return fs end
-    fs = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    logRows[i] = fs
-    return fs
+    local row = logRows[i]
+    if row then return row end
+    row = CreateFrame("Frame", nil, content)
+    row:SetHeight(LOG_ROW_H)
+    row:EnableMouse(true)
+    -- Mouse-enabled frames swallow the wheel, so forward it to the log scroll.
+    row:EnableMouseWheel(true)
+    row:SetScript("OnMouseWheel", function(_, delta) ScrollLog(delta) end)
+
+    row.text = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.text:SetPoint("LEFT",  row, "LEFT",  0, 0)
+    row.text:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.text:SetJustifyH("LEFT")
+    row.text:SetWordWrap(false)
+
+    row:SetScript("OnEnter", function(self)
+        local e = self.event
+        if not e then return end
+        GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
+        if e.kind == "death" then
+            GameTooltip:AddLine("Death", 1, 0.35, 0.3)
+            GameTooltip:AddLine(CcOf(e.caster) .. " died", 1, 1, 1)
+        else
+            local meta = CR.KINDS[e.kind]
+            GameTooltip:AddLine(meta and meta.label or e.kind, 1, 0.82, 0.1)
+            -- The target is the point of the log - always show it (even a
+            -- self-cast Innervate), then who cast it.
+            if e.target then
+                local tgt = CcOf(e.target)
+                if e.target == e.caster then tgt = tgt .. " |cFF888888(self)|r" end
+                GameTooltip:AddDoubleLine(TARGET_VERB[e.kind] or "Target", tgt, 0.7, 0.7, 0.7, 1, 1, 1)
+            end
+            local casterCol = ns.ClassColor(meta and meta.class or "UNKNOWN")
+            GameTooltip:AddDoubleLine("Cast by", casterCol .. e.caster .. "|r", 0.7, 0.7, 0.7, 1, 1, 1)
+        end
+        GameTooltip:AddDoubleLine("Since reset", "+" .. fmtTime(e.t - CR.resetAt),
+            0.55, 0.55, 0.55, 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    logRows[i] = row
+    return row
 end
 
 ----------------------------------------------------------------------
@@ -203,27 +270,32 @@ autoChk:SetScript("OnLeave", function() GameTooltip:Hide() end)
 ----------------------------------------------------------------------
 -- Refresh
 ----------------------------------------------------------------------
--- Class-colored name; Cn takes an explicit class, CcOf looks it up.
-local function Cn(name, class)
-    return ns.ClassColor(class or "UNKNOWN") .. (name or "?") .. "|r"
-end
-local function CcOf(name)  -- look the class up (death victims / rez targets vary)
-    return ns.ClassColor(ns.ClassOf(name)) .. (name or "?") .. "|r"
-end
+-- Assigns to the local forward-declared above, so ScrollLog and the row wheel
+-- handlers call this exact function (do not turn this back into a new local).
+function Refresh()
+    local a = CR.Availability()
 
-local function Refresh()
-    local druids = CR.GetDruids()
-    local a      = CR.Availability()
-
-    -- Summary line: combat-rez pool headline + innervate count.
-    if a.rezTotal == 0 and a.ssCount == 0 then
-        summary:SetText("|cFF888888No druids or soulstones in the group.|r")
+    -- Summary line: combat-rez pool headline + innervate / misdirect counts,
+    -- built from whichever parts exist so hunters alone still get a summary.
+    local hasTracked = (a.rezTotal > 0 or a.innTotal > 0 or a.mdTotal > 0)
+    if not hasTracked and a.ssCount == 0 then
+        summary:SetText("|cFF888888Nothing tracked in this group (no druids or hunters).|r")
     else
-        summary:SetText(string.format(
-            "Combat rez pool: |cFF44FF44%d|r |cFF777777(%d Rez + %d SS)|r"
-            .. "     |cFF888888Innervate|r %s%d/%d|r ready",
-            a.pool, a.rezReady, a.ssCount,
-            (a.innReady > 0) and "|cFFFFFFFF" or "|cFFFF6644", a.innReady, a.innTotal))
+        local parts = {}
+        if a.rezTotal > 0 or a.ssCount > 0 then
+            parts[#parts + 1] = string.format(
+                "Combat rez pool: |cFF44FF44%d|r |cFF777777(%d Rez + %d SS)|r",
+                a.pool, a.rezReady, a.ssCount)
+        end
+        if a.innTotal > 0 then
+            parts[#parts + 1] = string.format("|cFF888888Innervate|r %s%d/%d|r ready",
+                (a.innReady > 0) and "|cFFFFFFFF" or "|cFFFF6644", a.innReady, a.innTotal)
+        end
+        if a.mdTotal > 0 then
+            parts[#parts + 1] = string.format("|cFF888888Misdirect|r %s%d/%d|r ready",
+                (a.mdReady > 0) and "|cFFFFFFFF" or "|cFFFF6644", a.mdReady, a.mdTotal)
+        end
+        summary:SetText(table.concat(parts, "     "))
     end
 
     -- Rez plan / who's down.
@@ -244,7 +316,7 @@ local function Refresh()
     -- Readiness rows (druids + hunters).
     local players = CR.GetTrackedPlayers()
     local nShown  = math.min(#players, READY_ROWS_MAX)
-    noDruids:SetShown(#players == 0)
+    noTracked:SetShown(#players == 0)
     for i = 1, READY_ROWS_MAX do
         local p = players[i]
         if p then
@@ -267,16 +339,12 @@ local function Refresh()
     -- aren't druids, so they never appear in the board itself.
     local effRows      = math.max(nShown, 1)
     local yAfterBoard  = READY_START_Y - effRows * ROW_H
-    local ssNames = {}
-    for nm in pairs(CR.GetSoulstones()) do ssNames[#ssNames + 1] = nm end
+    local ssNames = CR.GetSoulstoneNamesColored()
     if #ssNames > 0 then
-        table.sort(ssNames)
-        local colored = {}
-        for i, nm in ipairs(ssNames) do colored[i] = CcOf(nm) end
         ssLine:ClearAllPoints()
         ssLine:SetPoint("TOPLEFT", content, "TOPLEFT", 6, yAfterBoard - 2)
         ssLine:SetPoint("RIGHT",   content, "RIGHT", -6, 0)
-        ssLine:SetText("|cFF9482C9Soulstone:|r  " .. table.concat(colored, ", "))
+        ssLine:SetText("|cFF9482C9Soulstone:|r  " .. table.concat(ssNames, ", "))
         ssLine:Show()
         yAfterBoard = yAfterBoard - 16
     else
@@ -293,7 +361,7 @@ local function Refresh()
     logEmpty:SetPoint("TOPLEFT", content, "TOPLEFT", 6, logSY)
 
     -- Recent casts & deaths (newest first). Fit as many rows as the window
-    -- allows above the footer; a "+N earlier" note caps the rest.
+    -- allows above the footer; the mouse wheel pages further into the past.
     local events   = CR.events
     local n        = #events
     logEmpty:SetShown(n == 0)
@@ -302,40 +370,54 @@ local function Refresh()
     local avail    = logSY + contentH - FOOTER_RESERVE   -- both terms negative/positive net px
     local visible  = math.max(0, math.min(LOG_POOL_MAX, math.floor(avail / LOG_ROW_H)))
 
-    local extra = 0
-    if n > visible and visible > 0 then extra = n - (visible - 1) end
-    local toShow = (extra > 0) and (visible - 1) or math.min(n, visible)
+    -- If new events land while scrolled back, shift the offset by the same
+    -- amount so the entries under the cursor stay put instead of sliding.
+    if n > lastEventCount and logOffset > 0 then
+        logOffset = logOffset + (n - lastEventCount)
+    end
+    lastEventCount = n
+
+    local maxOffset = math.max(0, n - visible)
+    if logOffset > maxOffset then logOffset = maxOffset end
+    local toShow = math.max(0, math.min(visible, n - logOffset))
+
+    -- Show the visible range in the header whenever there's more than fits.
+    if n > visible and visible > 0 then
+        logHeader.text:SetText(string.format(
+            "Recent casts & deaths   |cFF888888%d-%d of %d - scroll for older|r",
+            logOffset + 1, logOffset + toShow, n))
+    else
+        logHeader.text:SetText("Recent casts & deaths")
+    end
+
+    local function place(row, i)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", content, "TOPLEFT", 6, logSY - (i - 1) * LOG_ROW_H)
+        row:SetPoint("RIGHT",   content, "RIGHT", -6, 0)
+    end
 
     for i = 1, LOG_POOL_MAX do
-        local fs = logRows[i]
+        local row = logRows[i]
         if i <= toShow then
-            local e = events[n - i + 1]   -- walk back from newest
-            fs = GetLogRow(i)
-            fs:ClearAllPoints()
-            fs:SetPoint("TOPLEFT", content, "TOPLEFT", 6, logSY - (i - 1) * LOG_ROW_H)
-            fs:SetPoint("RIGHT",   content, "RIGHT", -6, 0)
+            local e = events[n - logOffset - i + 1]   -- walk back from newest
+            row = GetLogRow(i)
+            place(row, i)
+            row.event = e
             local when = "|cFF888888[+" .. fmtTime(e.t - CR.resetAt) .. "]|r"
             if e.kind == "death" then
-                fs:SetText(when .. "  |cFFFF5555x|r " .. CcOf(e.caster) .. " |cFFFF6644died|r")
+                row.text:SetText(when .. "  |cFFFF5555x|r " .. CcOf(e.caster) .. " |cFFFF6644died|r")
             else
                 local meta   = CR.KINDS[e.kind]
                 -- The spell's class is the caster's class (Druid or Hunter).
                 local caster = ns.ClassColor(meta and meta.class or "UNKNOWN") .. e.caster .. "|r"
                 local target = (e.target and e.target ~= e.caster)
                     and ("  |cFF999999to|r " .. CcOf(e.target)) or ""
-                fs:SetText(string.format("%s  %s%s   |cFF66CCFF%s|r",
+                row.text:SetText(string.format("%s  %s%s   |cFF66CCFF%s|r",
                     when, caster, target, meta and meta.label or e.kind))
             end
-            fs:Show()
-        elseif extra > 0 and i == visible then
-            fs = GetLogRow(i)
-            fs:ClearAllPoints()
-            fs:SetPoint("TOPLEFT", content, "TOPLEFT", 6, logSY - (i - 1) * LOG_ROW_H)
-            fs:SetPoint("RIGHT",   content, "RIGHT", -6, 0)
-            fs:SetText("|cFF666666(+" .. extra .. " earlier)|r")
-            fs:Show()
-        elseif fs then
-            fs:Hide()
+            row:Show()
+        elseif row then
+            row:Hide()
         end
     end
 end

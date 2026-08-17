@@ -270,26 +270,16 @@ function HealAssign.AutoAssign()
     end
 
     -- Build candidates ------------------------------------------------
+    -- The role-inclusion rule (declared healer -> include; other declared
+    -- role -> exclude; nothing declared -> include if healer-capable class)
+    -- lives in GetHealers(); reuse it here so the logic exists in one place.
+    -- GetHealers() already returns a name-sorted list reading the same scan
+    -- and role data. We only re-add the "UNKNOWN" class fallback so the
+    -- candidate shape stays identical to before.
     local candidates = {}
-    for name, info in pairs(ns.BuffScan.scanResults) do
-        local class    = info.class
-        local declared = ns.Roles and ns.Roles.GetRole(name)
-        local isHealerClass = class and HealAssign.HEALER_CLASSES[class]
-
-        local include
-        if declared == "healer" then
-            include = true
-        elseif declared and declared ~= "healer" then
-            include = false
-        else
-            include = isHealerClass and true or false
-        end
-
-        if include then
-            candidates[#candidates + 1] = { name = name, class = class or "UNKNOWN" }
-        end
+    for _, h in ipairs(HealAssign.GetHealers()) do
+        candidates[#candidates + 1] = { name = h.name, class = h.class or "UNKNOWN" }
     end
-    table.sort(candidates, function(a, b) return a.name < b.name end)
 
     if #candidates == 0 then
         ns.P("|cFFFF8800Auto-Assign:|r No healer candidates found.")

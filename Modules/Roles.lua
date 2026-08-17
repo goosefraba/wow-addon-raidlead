@@ -244,6 +244,14 @@ local roleChatActive = false
 local roleChatOnUpdate
 local roleChatCount  = 0
 
+-- Lookup tables for the fast-path replies. File-level so they are built once
+-- rather than re-allocated on every chat line while a role check is active.
+--   Numeric replies are the preferred form (what the chat prompt asks for):
+--   1 = Tank, 2 = Heal, 3 = Melee, 4 = Ranged.
+local ROLE_BY_NUMBER = { ["1"] = "tank", ["2"] = "healer", ["3"] = "melee", ["4"] = "ranged" }
+--   Single-letter shorthand (t/h/m/r) tolerated as a fallback.
+local ROLE_BY_LETTER = { t = "tank", h = "healer", m = "melee", r = "ranged" }
+
 -- Map one chat line to a role key, or nil. Deliberately tolerant of the
 -- common shorthands but ignores long sentences so normal chatter is not
 -- mistaken for a reply.
@@ -251,14 +259,9 @@ local function ParseRole(text)
     if not text then return nil end
     local m = tostring(text):lower():gsub("^%s+", ""):gsub("%s+$", "")
     if m == "" or #m > 24 then return nil end
-    -- Numeric replies are the preferred form (what the chat prompt asks
-    -- for): 1 = Tank, 2 = Heal, 3 = Melee, 4 = Ranged.
-    local num = { ["1"] = "tank", ["2"] = "healer", ["3"] = "melee", ["4"] = "ranged" }
-    if num[m] then return num[m] end
+    if ROLE_BY_NUMBER[m] then return ROLE_BY_NUMBER[m] end
     if #m == 1 then
-        -- Still tolerate single-letter shorthand (t/h/m/r) as a fallback.
-        local one = { t = "tank", h = "healer", m = "melee", r = "ranged" }
-        return one[m]
+        return ROLE_BY_LETTER[m]
     end
     if m:find("tank", 1, true)  or m:find("prot", 1, true)   then return "tank" end
     if m:find("heal", 1, true)  or m == "resto" or m == "holy" or m == "disc" then return "healer" end
@@ -360,12 +363,17 @@ if ns.Comm then
     end)
 
     ns.Comm.RegisterHandler("ROLE_REQ", function(parts, sender)
-        if not sender or sender == "" then return end
+        -- Check we actually have something to say BEFORE throttling, so a
+        -- roleless player doesn't burn their cooldown on a no-op and then
+        -- stay silent once they do pick a role.
         local me     = UnitName("player")
         local myRole = Roles.GetMyRole()
-        if me and myRole then
+        if not (me and myRole) then return end
+        -- Jittered + per-sender throttled: every addon user answers this, so
+        -- replying immediately means N simultaneous whispers per request.
+        ns.Comm.ThrottledReply("ROLE_REQ", sender, 3, function()
             ns.Comm.Whisper(sender, "ROLE_SET", me, myRole)
-        end
+        end)
     end)
 
     ns.Comm.RegisterHandler("ROLE_CHECK", function(parts, sender)

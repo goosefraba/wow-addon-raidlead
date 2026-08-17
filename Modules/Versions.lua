@@ -123,8 +123,10 @@ if ns.Comm then
     end)
 
     ns.Comm.RegisterHandler("VER_REQ", function(parts, sender)
-        -- Reply directly so we don't spam the raid channel
-        if not sender or sender == "" then return end
-        ns.Comm.Whisper(sender, "VER", ns.VERSION or "0.0.0")
+        -- Reply directly so we don't spam the raid channel, and jitter it:
+        -- every addon user answers, so an instant reply is an N-way burst.
+        ns.Comm.ThrottledReply("VER_REQ", sender, 3, function()
+            ns.Comm.Whisper(sender, "VER", ns.VERSION or "0.0.0")
+        end)
     end)
 end

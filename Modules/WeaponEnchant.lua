@@ -129,8 +129,13 @@ if ns.Comm then
     end)
 
     ns.Comm.RegisterHandler("WENCH_REQ", function(parts, sender)
-        if not sender or sender == "" then return end
-        SendReport(function(...) ns.Comm.Whisper(sender, "WENCH", ...) end)
+        -- Confirm we have a scan result BEFORE throttling, so a player whose
+        -- scan isn't ready doesn't burn their cooldown on a silent no-op.
+        if not WeaponEnchant.ScanSelf() then return end
+        -- Jittered + per-sender throttled, same reasoning as ROLE_REQ/VER_REQ.
+        ns.Comm.ThrottledReply("WENCH_REQ", sender, 3, function()
+            SendReport(function(...) ns.Comm.Whisper(sender, "WENCH", ...) end)
+        end)
     end)
 end
 

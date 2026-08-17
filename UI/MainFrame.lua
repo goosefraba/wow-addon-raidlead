@@ -788,15 +788,15 @@ function ns.UpdateCompactDisplay()
     end
 end
 
--- Live-refresh loop for the time-sensitive compact sections (healer mana,
--- Battle Rez / Innervate countdowns). Only rebuilds while compact mode and
--- at least one live section are on, at ~1.5 Hz.
-local manaTicker = CreateFrame("Frame")
-local manaAccum = 0
-manaTicker:SetScript("OnUpdate", function(_, elapsed)
-    manaAccum = manaAccum + elapsed
-    if manaAccum < 0.7 then return end
-    manaAccum = 0
+-- Live-refresh loop for the time-sensitive compact sections (healer mana and
+-- the Combat Report countdowns) plus the hover detail tooltip. Only rebuilds
+-- while compact mode and at least one live section are on, at ~1.5 Hz.
+local compactTicker = CreateFrame("Frame")
+local compactAccum = 0
+compactTicker:SetScript("OnUpdate", function(_, elapsed)
+    compactAccum = compactAccum + elapsed
+    if compactAccum < 0.7 then return end
+    compactAccum = 0
     local s = ns.db and ns.db.settings
     if s and s.compactMode and (s.compactShowHealerMana or s.compactShowRezWatch) then
         ns.UpdateCompactDisplay()

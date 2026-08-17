@@ -1,5 +1,22 @@
 # RaidLead Changelog
 
+## v1.9.0
+
+### Stability - addon message flood on zone changes (important)
+Fixes a bug that could **disconnect the whole raid**, typically right after everyone zoned into an instance ("everyone frozen running on the spot"). Several protections were added:
+
+- **Hard outbound rate limit.** All addon messages now go through a paced queue capped at 5/sec, with separate lanes so a large state sync can never delay a live edit. This is a structural backstop: no future change can flood the channel, whatever triggers it. The pacing is also loading-screen-safe - it can't bank up credit during a load and then fire a burst.
+- **Fixed the trigger.** A zone change can briefly make the game report an empty group, which looked like "just joined a group" to every raid member at the same instant and set off a raid-wide sync storm. RaidLead now compares the actual roster to tell a zoning artifact apart from a real group join.
+- **Reply storms removed.** Role, version and weapon-enchant requests used to be answered instantly by every addon user at once. Replies are now spread out and de-duplicated per requester.
+- **Full-state syncs are queued, not duplicated.** When several people request a sync at once, they're served one at a time instead of each receiving their own full copy, with back-pressure so nothing is silently dropped. Nobody is starved - late requesters simply wait their turn.
+- **Jitter is now properly randomised.** The staggering that spreads clients apart relied on a random number generator that was never seeded, so every client could have picked the same delay and stayed in lockstep.
+- `/raidlead commstats` shows sent / dropped / queued message counts for diagnosing traffic.
+
+### Fixes
+- **Combat tab: the "Recent casts & deaths" log now scrolls.** Use the mouse wheel to page back through the history; the header shows your position (e.g. `1-6 of 23`). History capacity raised from 60 to 250 events, and the scroll position stays anchored when new events arrive mid-fight.
+- **A hunter could be suggested as a Battle Rez** in the rez plan (Misdirection casters were being treated as available rezzers). Only druids are considered now.
+- **Hovering a row in the combat log could throw an error** instead of showing its tooltip.
+
 ## v1.8.1
 
 ### Compatibility

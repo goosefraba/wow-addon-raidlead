@@ -95,6 +95,14 @@ SlashCmdList["RAIDLEAD"] = function(msg)
         if ns.db and ns.db.settings then ns.db.settings.debug = ns.DEBUG end
         ns.P("Debug " .. (ns.DEBUG and "|cFF44FF44ON|r" or "|cFFFF4444OFF|r"))
 
+    elseif cmd == "commstats" then
+        -- Outbound addon-message counters. Watch these across a zone-in to
+        -- confirm the traffic stays under the server's rate limit.
+        if ns.Comm and ns.Comm.stats then
+            ns.P(string.format("Comm: sent %d, dropped %d, queued %d",
+                ns.Comm.stats.sent, ns.Comm.stats.dropped, ns.Comm.QueueDepth()))
+        end
+
     elseif cmd == "cdtest" then
         -- Solo test: inject a fake Innervate + Battle Rez so the Combat tab
         -- populates without a real druid group.
@@ -202,6 +210,34 @@ local firstEnterDone = false   -- only the first PLAYER_ENTERING_WORLD syncs
 local lastSyncRequest = 0
 local SYNC_THROTTLE = 30  -- seconds
 
+-- Guard against a transient empty roster during zone changes being read as
+-- "just joined a group" (see the GROUP_ROSTER_UPDATE handler below).
+local lastZoneChange = 0
+local ZONE_GRACE = 12   -- seconds after a zone change that a blip is possible
+local lastGroupSig = "" -- who we were grouped with, to spot a genuine new group
+
+-- Cheap identity for the current group: sorted member names. Used to tell a
+-- zoning artifact (roster reappears IDENTICAL) apart from actually joining a
+-- different group (roster differs), which a timer alone cannot distinguish.
+local function GroupSignature()
+    local names = {}
+    if IsInRaid and IsInRaid() then
+        for i = 1, 40 do
+            local n = UnitName("raid" .. i)
+            if n then names[#names + 1] = n end
+        end
+    elseif IsInGroup and IsInGroup() then
+        names[1] = UnitName("player")
+        for i = 1, 4 do
+            local n = UnitName("party" .. i)
+            if n then names[#names + 1] = n end
+        end
+    end
+    if #names == 0 then return "" end
+    table.sort(names)
+    return table.concat(names, ",")
+end
+
 local function MaybeAutoSync(reason)
     if not ns.BossTemplates or not ns.BossTemplates.RequestSync then return end
     local now = GetTime()
@@ -213,8 +249,12 @@ local function MaybeAutoSync(reason)
     if gt == "solo" then return end
     lastSyncRequest = now
     ns.D("Auto-sync triggered: " .. reason)
-    -- Small delay so the group state has time to fully settle
-    C_Timer.After(2, function()
+    -- Small delay so the group state has time to fully settle, plus random
+    -- jitter: when a whole raid triggers this at the same moment (everyone
+    -- zoning in together) a FIXED delay keeps them synchronized and they all
+    -- fire their request burst in the same instant. Spreading over ~4s
+    -- desynchronizes the group.
+    C_Timer.After(2 + math.random() * 4, function()
         ns.BossTemplates.RequestSync()
         -- Push our own self-declared role to the group, and ask everyone
         -- else for theirs. Both are safe no-ops if Roles isn't set up.
@@ -298,6 +338,9 @@ loader:SetScript("OnEvent", function(self, event, ...)
         -- floods the addon channel and disconnects everyone. State is
         -- already synced, and a genuine new member re-syncs via
         -- GROUP_ROSTER_UPDATE below, so we skip the sync on zone changes.
+        -- Stamp the time so the roster handler can tell a zoning artifact
+        -- apart from a real group join.
+        lastZoneChange = GetTime()
         if not firstEnterDone then
             firstEnterDone = true
             if ns.GetGroupType() ~= "solo" then
@@ -313,10 +356,30 @@ loader:SetScript("OnEvent", function(self, event, ...)
             ns.BuffScan.DebouncedScan()
         end
 
-        -- Detect transition from solo -> in group (we just joined)
+        -- Detect transition from solo -> in group (we just joined).
+        --
+        -- Careful: during a zone / instance transition the roster APIs can
+        -- briefly report an empty group, which then looks like solo -> group
+        -- a moment later and re-triggers the auto-sync burst on EVERY raid
+        -- member at once. We distinguish that from a real join by comparing
+        -- the group's membership: a zoning blip brings back the SAME roster,
+        -- whereas actually joining somewhere gives a different one. The
+        -- signature is only compared inside the post-zone window, so leaving
+        -- and later rejoining the same raid still syncs normally.
         local nowInGroup = (ns.GetGroupType() ~= "solo")
-        if nowInGroup and not wasInGroup then
-            MaybeAutoSync("just joined group")
+        if nowInGroup then
+            local sig = GroupSignature()
+            if not wasInGroup then
+                if sig ~= "" and sig == lastGroupSig
+                   and (GetTime() - lastZoneChange) < ZONE_GRACE then
+                    ns.D("Skipping auto-sync: same roster reappearing after a zone change.")
+                else
+                    MaybeAutoSync("just joined group")
+                end
+            end
+            -- Only remember a real roster; during the blip we read as solo and
+            -- deliberately keep the pre-blip signature to compare against.
+            if sig ~= "" then lastGroupSig = sig end
         end
         wasInGroup = nowInGroup
 

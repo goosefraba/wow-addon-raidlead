@@ -400,8 +400,15 @@ if ns.Comm then
     -- QUEUE every message and drain a few per timer tick — a fully set-up
     -- raid is 100+ entries, and firing them all in one frame overruns WoW's
     -- addon-message rate limit (silently dropped -> lost sync).
-    local SYNC_BURST   = 4      -- messages per tick
-    local SYNC_INTERVAL = 0.10  -- seconds between ticks
+    --
+    -- Comm now paces the wire itself, so this local pump only needs to avoid
+    -- stuffing Comm's queue faster than it drains (which would hit the
+    -- MAX_QUEUE cap and silently discard the tail of our state). It feeds in
+    -- small batches and BACKS OFF whenever Comm's backlog is still deep.
+    local SYNC_BURST     = 4     -- messages per tick
+    local SYNC_INTERVAL  = 0.10  -- seconds between ticks
+    local SYNC_BACKLOG   = 60    -- pause feeding while Comm is this far behind
+    local SYNC_BACKOFF   = 1.0   -- seconds to wait before re-checking
 
     local function SendFullStateTo(target)
         if not BossTemplates.EnsureDB() then return 0 end
@@ -498,13 +505,21 @@ if ns.Comm then
             end
         end
 
-        -- Drain the queue gradually.
+        -- Drain the queue gradually, backing off while Comm is still behind so
+        -- we never overflow its cap and lose the tail of the state silently.
         local total, i = #queue, 1
         local function pump()
+            if ns.Comm.QueueDepth and ns.Comm.QueueDepth() > SYNC_BACKLOG then
+                C_Timer.After(SYNC_BACKOFF, pump)
+                return
+            end
             for _ = 1, SYNC_BURST do
                 local msg = queue[i]
                 if not msg then return end
-                ns.Comm.Whisper(target, unpack(msg))
+                -- Bulk lane: a big sync must never delay a live edit. Always a
+                -- whisper - receivers use the WHISPER channel to know this is
+                -- a bulk dump and stay quiet instead of printing every entry.
+                ns.Comm.WhisperBulk(target, unpack(msg))
                 i = i + 1
             end
             if queue[i] then C_Timer.After(SYNC_INTERVAL, pump) end
@@ -517,6 +532,55 @@ if ns.Comm then
     -- Throttle: don't respond to repeated requests too quickly
     local lastResponseTo = {}  -- [name] = time
     local RESPONSE_COOLDOWN = 5
+
+    -- Requests are QUEUED rather than answered as they arrive. Answering each
+    -- immediately means N full copies of the state when several people ask at
+    -- once (a raid forming, invites landing in bursts), while a plain global
+    -- cooldown would silently starve everyone after the first with no retry.
+    -- So: hold requesters in a pending set and serve exactly ONE per cycle.
+    -- Traffic is bounded to one full state per GLOBAL_SYNC_COOLDOWN, and
+    -- nobody is dropped - they simply wait their turn.
+    --
+    -- Deliberately whisper-only. Broadcasting the dump to the group would be
+    -- cheaper, but receivers decide whether to stay quiet via
+    -- ns.IsBulkSync(channel), which keys on WHISPER - a broadcast dump would
+    -- print a [sync] line per entry for all 25 players. It would also let a
+    -- stale assistant's copy overwrite everyone instead of just the requester.
+    local lastFullSync = 0
+    local GLOBAL_SYNC_COOLDOWN = 10
+    local COALESCE_WINDOW = 3
+    local pending, pendingCount, flushArmed = {}, 0, false
+
+    local function FlushPending()
+        flushArmed = false
+        if pendingCount == 0 then return end
+
+        -- Still cooling down? Re-arm instead of dropping, so nobody is
+        -- starved - the pending set is preserved and served when it expires.
+        local wait = GLOBAL_SYNC_COOLDOWN - (GetTime() - lastFullSync)
+        if wait > 0 then
+            flushArmed = true
+            C_Timer.After(wait + math.random() * 0.5, FlushPending)
+            return
+        end
+
+        -- Take one requester; the rest stay pending for the next cycle.
+        local target = next(pending)
+        if not target then pendingCount = 0; return end
+        pending[target] = nil
+        pendingCount = pendingCount - 1
+        lastFullSync = GetTime()
+
+        local count = SendFullStateTo(target) or 0
+        if count > 0 then
+            ns.D("Sent " .. count .. " sync entries to " .. target)
+        end
+
+        if pendingCount > 0 then
+            flushArmed = true
+            C_Timer.After(GLOBAL_SYNC_COOLDOWN + math.random() * 0.5, FlushPending)
+        end
+    end
 
     ns.Comm.RegisterHandler("REQUEST_SYNC", function(parts, sender)
         if not sender or sender == "" then return end
@@ -532,13 +596,15 @@ if ns.Comm then
         end
         lastResponseTo[sender] = now
 
-        -- Small random delay so multiple responders don't all reply at once
-        C_Timer.After(math.random() * 0.8, function()
-            local count = SendFullStateTo(sender) or 0
-            if count > 0 then
-                ns.D("Sent " .. count .. " sync entries to " .. sender)
-            end
-        end)
+        if not pending[sender] then
+            pending[sender] = true
+            pendingCount = pendingCount + 1
+        end
+        if not flushArmed then
+            flushArmed = true
+            -- Jitter so multiple responders don't all flush in the same instant.
+            C_Timer.After(COALESCE_WINDOW + math.random() * 0.8, FlushPending)
+        end
     end)
 
     -- Public function: ask the group for their data

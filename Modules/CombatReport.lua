@@ -6,6 +6,8 @@
 --   * Druid Innervate + Battle Rez (Rebirth) casts - who, on whom, and an
 --     inferred cooldown countdown so the raid lead can see how many rezzes
 --     / innervates are still available during a fight.
+--   * Hunter Misdirection casts - who redirected threat and to whom, with an
+--     inferred cooldown countdown alongside the druid abilities.
 --   * Deaths (UNIT_DIED) of group members, as a timeline.
 --   * Warlock Soulstones (live buff scan) - folded into a single
 --     "combat rez pool" and a per-death rez suggestion.
@@ -32,9 +34,9 @@ CombatReport.CD = { innervate = 360, rebirth = 1200, misdirect = 120 }
 -- class = the class that owns the spell (used to build the readiness board
 -- rows and to know which cells apply to which player).
 CombatReport.KINDS = {
-    innervate = { label = "Innervate",  class = "DRUID",  icon = "Interface\\Icons\\Spell_Nature_Lightning" },
-    rebirth   = { label = "Battle Rez", class = "DRUID",  icon = "Interface\\Icons\\Spell_Nature_Reincarnation" },
-    misdirect = { label = "Misdirect",  class = "HUNTER", icon = "Interface\\Icons\\Ability_Hunter_Misdirection" },
+    innervate = { label = "Innervate",  class = "DRUID"  },
+    rebirth   = { label = "Battle Rez", class = "DRUID"  },
+    misdirect = { label = "Misdirect",  class = "HUNTER" },
 }
 
 ----------------------------------------------------------------------
@@ -72,13 +74,16 @@ end
 -- State
 ----------------------------------------------------------------------
 -- events: chronological, newest appended at the end. kinds:
---   "innervate" | "rebirth" (casts, caster+target) | "death" (caster only)
+--   "innervate" | "rebirth" | "misdirect" (casts, caster+target)
+--   | "death" (caster only)
 CombatReport.events   = {}
 -- lastCast[caster][kind] = GetTime() of the most recent observed cast.
 CombatReport.lastCast = {}
 CombatReport.resetAt  = GetTime()
 
-local MAX_EVENTS = 60
+-- Ring-buffer cap for the log. Generous because the Combat tab can scroll
+-- back through it; the entries are tiny tables so the memory is negligible.
+local MAX_EVENTS = 250
 
 ----------------------------------------------------------------------
 -- Group helpers
@@ -118,7 +123,7 @@ local function RecordCast(caster, target, kind)
     target = StripRealm(target)
     if not caster or not kind then return end
     local now = GetTime()
-    pushEvent({ t = now, clock = date("%H:%M:%S"), caster = caster, target = target, kind = kind })
+    pushEvent({ t = now, caster = caster, target = target, kind = kind })
     CombatReport.lastCast[caster] = CombatReport.lastCast[caster] or {}
     CombatReport.lastCast[caster][kind] = now
 end
@@ -126,7 +131,7 @@ end
 local function RecordDeath(name)
     name = StripRealm(name)
     if not name then return end
-    pushEvent({ t = GetTime(), clock = date("%H:%M:%S"), caster = name, kind = "death" })
+    pushEvent({ t = GetTime(), caster = name, kind = "death" })
 end
 
 -- Clear the cast / death log for a fresh pull. Cooldown timers are KEPT on
@@ -169,29 +174,6 @@ function CombatReport.UnitStatus(unit)
     if UnitIsConnected and not UnitIsConnected(unit) then return "offline" end
     if UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit) then return "dead" end
     return "alive"
-end
-
--- Ordered list of { name, unit } for every Druid in the group, plus any
--- druid we've only seen via events, and yourself when solo.
-function CombatReport.GetDruids()
-    local list, seen = {}, {}
-    local function add(name, unit)
-        name = StripRealm(name)
-        if not name or seen[name] then return end
-        seen[name] = true
-        list[#list + 1] = { name = name, unit = unit }
-    end
-
-    for _, u in ipairs(GroupUnits()) do
-        if UnitExists(u) then
-            local _, class = UnitClass(u)
-            if class == "DRUID" then add(UnitName(u), u) end
-        end
-    end
-    for caster in pairs(CombatReport.lastCast) do add(caster, nil) end
-
-    table.sort(list, function(a, b) return a.name < b.name end)
-    return list
 end
 
 -- Which classes own at least one tracked spell (built from KINDS).
@@ -337,10 +319,15 @@ end
 function CombatReport.BuildRezPlan()
     local down = CombatReport.GetDown()
     local ready = {}
-    for _, d in ipairs(CombatReport.GetDruids()) do
-        local st = d.unit and CombatReport.UnitStatus(d.unit) or "alive"
-        if st == "alive" and CombatReport.Remaining(d.name, "rebirth") <= 0 then
-            ready[#ready + 1] = d.name
+    -- Only druids can Battle Rez. Iterating tracked players (not just druids)
+    -- would let a hunter - who never cast Rebirth, so Remaining() is 0 - be
+    -- counted as a ready rezzer, so filter to p.class == "DRUID".
+    for _, p in ipairs(CombatReport.GetTrackedPlayers()) do
+        if p.class == "DRUID" then
+            local st = p.unit and CombatReport.UnitStatus(p.unit) or "alive"
+            if st == "alive" and CombatReport.Remaining(p.name, "rebirth") <= 0 then
+                ready[#ready + 1] = p.name
+            end
         end
     end
 
@@ -359,7 +346,7 @@ function CombatReport.BuildRezPlan()
         end
         plan[#plan + 1] = e
     end
-    return plan, down
+    return plan
 end
 
 ----------------------------------------------------------------------
@@ -404,6 +391,31 @@ function CombatReport.BuildCompactText()
     return table.concat(lines, "\n")
 end
 
+-- Colored readiness string for a tracked player's spell: offline grey, dead
+-- red, Ready green, else a yellow m:ss countdown. Shared by the UI readiness
+-- board (CellText) and the compact-panel hover tooltip so both stay in sync.
+function CombatReport.ReadinessText(p, kind)
+    local st = p.unit and CombatReport.UnitStatus(p.unit) or "alive"
+    if st == "offline" then return "|cFF777777offline|r" end
+    if st == "dead"    then return "|cFFFF6644dead|r"    end
+    local rem = CombatReport.Remaining(p.name, kind)
+    if rem <= 0 then return "|cFF44FF44Ready|r" end
+    return "|cFFFFCC00" .. fmtTime(rem) .. "|r"
+end
+
+-- Sorted array of class-colored soulstone-holder names. Sort by the plain
+-- name BEFORE coloring (sorting the colored strings would sort by the color
+-- escape code). Shared by the UI soulstone line and the hover tooltip.
+function CombatReport.GetSoulstoneNamesColored()
+    local names = {}
+    for nm in pairs(ScanSoulstones()) do names[#names + 1] = nm end
+    table.sort(names)
+    for i, nm in ipairs(names) do
+        names[i] = ns.ClassColor(ns.ClassOf(nm)) .. nm .. "|r"
+    end
+    return names
+end
+
 -- Full readiness detail for the compact-panel hover: grouped by ability so
 -- you can see exactly WHO has each thing ready, plus soulstones and who's
 -- down. Returns color-coded, tooltip-ready strings.
@@ -416,15 +428,7 @@ function CombatReport.BuildTooltipLines()
         local sub  = {}
         for _, p in ipairs(players) do
             if p.class == meta.class then
-                local st  = p.unit and CombatReport.UnitStatus(p.unit) or "alive"
-                local val
-                if st == "offline" then val = "|cFF777777offline|r"
-                elseif st == "dead" then val = "|cFFFF6644dead|r"
-                else
-                    local rem = CombatReport.Remaining(p.name, kind)
-                    val = (rem <= 0) and "|cFF44FF44Ready|r"
-                        or ("|cFFFFCC00" .. fmtTime(rem) .. "|r")
-                end
+                local val = CombatReport.ReadinessText(p, kind)
                 sub[#sub + 1] = "  " .. ns.ClassColor(p.class) .. p.name .. "|r  " .. val
             end
         end
@@ -434,11 +438,8 @@ function CombatReport.BuildTooltipLines()
         end
     end
 
-    local ss = {}
-    for nm in pairs(ScanSoulstones()) do ss[#ss + 1] = nm end
+    local ss = CombatReport.GetSoulstoneNamesColored()
     if #ss > 0 then
-        table.sort(ss)
-        for i, nm in ipairs(ss) do ss[i] = ns.ClassColor(ns.ClassOf(nm)) .. nm .. "|r" end
         lines[#lines + 1] = "|cFF9482C9Soulstone:|r " .. table.concat(ss, ", ")
     end
 
