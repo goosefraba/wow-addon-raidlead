@@ -359,14 +359,14 @@ rosterHeader:SetHeight(24)
 rosterHeader:SetPoint("TOPLEFT",  rosterContainer, "TOPLEFT",  0, 0)
 rosterHeader:SetPoint("TOPRIGHT", rosterContainer, "TOPRIGHT", 0, 0)
 
-local roleCheckBtn = ns.MakeSmallButton(rosterHeader, "Request Role Check", 140, 22)
+local roleCheckBtn = ns.MakeSmallButton(rosterHeader, "Role Check", 95, 22)
 roleCheckBtn:SetPoint("RIGHT", rosterHeader, "RIGHT", -4, 0)
 roleCheckBtn:SetScript("OnClick", function()
     if ns.Roles and ns.Roles.SendRoleCheck then ns.Roles.SendRoleCheck() end
 end)
 
 -- Quick Poll launcher - leader / assistant only.
-local quickPollBtn = ns.MakeSmallButton(rosterHeader, "Quick Poll", 100, 22)
+local quickPollBtn = ns.MakeSmallButton(rosterHeader, "Quick Poll", 90, 22)
 quickPollBtn:SetPoint("RIGHT", roleCheckBtn, "LEFT", -6, 0)
 quickPollBtn:SetScript("OnClick", function()
     if ns.CanBroadcast and not ns.CanBroadcast() then
@@ -390,33 +390,90 @@ quickPollBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
 -- Chat role check - asks the whole raid (incl. non-addon players) for
 -- their role in chat and sets it from their replies. Leader / assist only.
-local chatRoleBtn = ns.MakeSmallButton(rosterHeader, "Ask Roles (chat)", 130, 22)
+local chatRoleBtn = ns.MakeSmallButton(rosterHeader, "Ask All", 90, 22)
 chatRoleBtn:SetPoint("RIGHT", quickPollBtn, "LEFT", -6, 0)
-local function syncChatRoleBtn()
-    if ns.Roles and ns.Roles.IsChatRoleCheckActive and ns.Roles.IsChatRoleCheckActive() then
-        chatRoleBtn:SetText("|cFFFF6666Stop Asking|r")
-    else
-        chatRoleBtn:SetText("Ask Roles (chat)")
-    end
+
+-- Follow-up button: whisper ONLY the players still missing a role, so a few
+-- stragglers don't force a full re-poll of the whole raid.
+local askMissingBtn = ns.MakeSmallButton(rosterHeader, "Ask Missing", 95, 22)
+askMissingBtn:SetPoint("RIGHT", chatRoleBtn, "LEFT", -6, 0)
+
+local function missingCount()
+    if not (ns.Roles and ns.Roles.GetMissingRolePlayers) then return 0 end
+    return #ns.Roles.GetMissingRolePlayers()
 end
+
+local syncRoleButtons
+function syncRoleButtons()
+    local active = ns.Roles and ns.Roles.IsChatRoleCheckActive
+                   and ns.Roles.IsChatRoleCheckActive()
+    chatRoleBtn:SetText(active and "|cFFFF6666Stop|r" or "Ask All")
+
+    -- Left enabled even at zero so the tooltip (which lists exactly who is
+    -- still missing) stays hoverable; clicking just reports that all is well.
+    local n = missingCount()
+    askMissingBtn:SetText(n > 0 and ("Ask Missing (" .. n .. ")") or "Ask Missing")
+end
+
 chatRoleBtn:SetScript("OnClick", function()
     if not ns.Roles then return end
     if ns.Roles.IsChatRoleCheckActive and ns.Roles.IsChatRoleCheckActive() then
         ns.Roles.StopChatRoleCheck()
     elseif ns.Roles.StartChatRoleCheck then
-        ns.Roles.StartChatRoleCheck(syncChatRoleBtn)
+        ns.Roles.StartChatRoleCheck(syncRoleButtons)
     end
-    syncChatRoleBtn()
+    syncRoleButtons()
 end)
-chatRoleBtn:HookScript("OnShow", syncChatRoleBtn)
+chatRoleBtn:HookScript("OnShow", syncRoleButtons)
+
+askMissingBtn:SetScript("OnClick", function()
+    if ns.Roles and ns.Roles.AskMissingRoles then
+        ns.Roles.AskMissingRoles(syncRoleButtons)
+    end
+    syncRoleButtons()
+end)
+askMissingBtn:HookScript("OnShow", syncRoleButtons)
+askMissingBtn:HookScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("Ask Missing Roles", 1, 0.82, 0.1)
+    GameTooltip:AddLine(
+        "Follow-up for the few players still showing an unknown role - no "
+        .. "need to re-poll the whole raid. Players running RaidLead get the "
+        .. "role popup; everyone else gets a whisper they can answer with a "
+        .. "number. Replies are read the same way as a normal role check.",
+        0.8, 0.8, 0.8, true)
+    local names = ns.Roles and ns.Roles.GetMissingRolePlayers
+                  and ns.Roles.GetMissingRolePlayers() or {}
+    if #names > 0 then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Still missing (" .. #names .. "):", 1, 0.82, 0.1)
+        for i = 1, math.min(#names, 12) do
+            local c = ns.ClassColor and ns.ClassOf and ns.ClassColor(ns.ClassOf(names[i]))
+            GameTooltip:AddLine("  " .. (c and (c .. names[i] .. "|r") or names[i]), 1, 1, 1)
+        end
+        if #names > 12 then
+            GameTooltip:AddLine("  +" .. (#names - 12) .. " more", 0.6, 0.6, 0.6)
+        end
+    else
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Everyone has a role.", 0.5, 0.9, 0.5)
+    end
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("Leader or assistant only.", 0.85, 0.55, 0.2, true)
+    GameTooltip:Show()
+end)
+askMissingBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 chatRoleBtn:HookScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine("Ask Roles in chat", 1, 0.82, 0.1)
+    GameTooltip:AddLine("Ask All Roles in chat", 1, 0.82, 0.1)
     GameTooltip:AddLine(
         "Posts a role question to raid/party chat and reads the replies "
         .. "(chat or whisper) - works for players WITHOUT the addon. Each "
         .. "answer sets that player's role automatically. Click again to stop.",
         0.8, 0.8, 0.8, true)
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("For just a few stragglers, use Ask Missing instead.",
+        0.6, 0.75, 0.9, true)
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("Leader or assistant only.", 0.85, 0.55, 0.2, true)
     GameTooltip:Show()
@@ -427,6 +484,8 @@ local function UpdateQuickPollBtn()
     local can = ns.CanBroadcast and ns.CanBroadcast() or false
     quickPollBtn:SetShown(can)
     chatRoleBtn:SetShown(can)
+    askMissingBtn:SetShown(can)
+    if can then syncRoleButtons() end
 end
 ns.UpdateQuickPollButton = UpdateQuickPollBtn
 UpdateQuickPollBtn()

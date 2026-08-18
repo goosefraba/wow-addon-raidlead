@@ -1,5 +1,20 @@
 # RaidLead Changelog
 
+## v1.9.1
+
+### New
+- **Ask Missing** (Heal Assign tab). Chases only the players still showing an unknown role, instead of re-polling the whole raid because of two or three stragglers.
+  - Players running RaidLead get the **role popup** - sent as a targeted whisper, so nobody else is disturbed.
+  - Everyone else gets a **plain whisper** they can answer with a number (1 = Tank, 2 = Heal, 3 = Melee, 4 = Ranged).
+  - The button shows how many are missing, and hovering it lists exactly **who** (class-coloured). Offline players and yourself are skipped.
+  - Whispers are paced one at a time so a large group can't trip the server's chat flood protection.
+
+### Fixes
+- Starting a second role check left the **first** check's 90-second auto-stop timer running, which could cut the new check short.
+
+### Changed
+- Roster header buttons renamed to fit alongside the new one: *Request Role Check* -> **Role Check**, *Ask Roles (chat)* -> **Ask All**.
+
 ## v1.9.0
 
 ### Stability - addon message flood on zone changes (important)

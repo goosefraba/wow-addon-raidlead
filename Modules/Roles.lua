@@ -298,6 +298,116 @@ end)
 
 function Roles.IsChatRoleCheckActive() return roleChatActive end
 
+-- Turn on chat/whisper reply reading. Shared by the full role check and the
+-- "ask only the missing players" follow-up. The generation counter matters:
+-- without it, starting a second check would leave the FIRST check's auto-stop
+-- timer running, and it would cut the new one short.
+local roleChatGen = 0
+local function ActivateListening(onUpdate)
+    roleChatActive   = true
+    roleChatOnUpdate = onUpdate
+    roleChatCount    = 0
+    roleChatGen      = roleChatGen + 1
+    local gen        = roleChatGen
+    for _, e in ipairs(ROLE_CHAT_EVENTS) do roleChatFrame:RegisterEvent(e) end
+    C_Timer.After(CHAT_ROLE_DURATION, function()
+        if roleChatActive and roleChatGen == gen then Roles.StopChatRoleCheck() end
+    end)
+end
+
+----------------------------------------------------------------------
+-- Follow-up: ask ONLY the players we still have no role for.
+----------------------------------------------------------------------
+
+-- Paced whisper sender. Firing SendChatMessage in a tight loop for a dozen
+-- players trips the server's chat flood protection (dropped messages, or a
+-- disconnect), so they go out one at a time.
+local WHISPER_INTERVAL = 0.6
+local whisperQueue, whisperPumping = {}, false
+
+local function PumpWhispers()
+    local e = table.remove(whisperQueue, 1)
+    if not e then whisperPumping = false; return end
+    SendChatMessage(e.text, "WHISPER", nil, e.name)
+    C_Timer.After(WHISPER_INTERVAL, PumpWhispers)
+end
+
+local function QueueWhisper(name, text)
+    whisperQueue[#whisperQueue + 1] = { name = name, text = text }
+    if not whisperPumping then
+        whisperPumping = true
+        C_Timer.After(0, PumpWhispers)
+    end
+end
+
+local function GroupUnits()
+    local units = {}
+    if IsInRaid and IsInRaid() then
+        for i = 1, 40 do
+            if UnitExists("raid" .. i) then units[#units + 1] = "raid" .. i end
+        end
+    elseif IsInGroup and IsInGroup() then
+        units[1] = "player"
+        for i = 1, 4 do
+            if UnitExists("party" .. i) then units[#units + 1] = "party" .. i end
+        end
+    end
+    return units
+end
+
+-- Group members we still have no role for. Offline players are skipped (they
+-- cannot answer), and so are we - the lead sets their own role in the panel.
+function Roles.GetMissingRolePlayers()
+    local me, out = UnitName("player"), {}
+    for _, unit in ipairs(GroupUnits()) do
+        local name = UnitName(unit)
+        if name and name ~= me and not Roles.GetRole(name)
+           and (not UnitIsConnected or UnitIsConnected(unit)) then
+            out[#out + 1] = name
+        end
+    end
+    table.sort(out)
+    return out
+end
+
+-- Whisper just the players still missing a role, instead of re-polling the
+-- whole raid. Players who also run RaidLead get the in-addon popup (a
+-- targeted whisper, so nobody else is disturbed); everyone else gets a plain
+-- whisper they can reply to with a number.
+function Roles.AskMissingRoles(onUpdate)
+    if ns.CanBroadcast and not ns.CanBroadcast() then
+        ns.P("|cFFFF8800Only the raid leader or an assistant can run a role check.|r")
+        return false
+    end
+
+    local missing = Roles.GetMissingRolePlayers()
+    if #missing == 0 then
+        ns.P("|cFF88CCFFEveryone in the group already has a role.|r")
+        return false
+    end
+
+    local popped, asked = 0, 0
+    for _, name in ipairs(missing) do
+        local hasAddon = ns.Versions and ns.Versions.GetVersion
+                         and ns.Versions.GetVersion(name)
+        if hasAddon and ns.Comm then
+            -- Addon user: a targeted ROLE_CHECK opens their popup only.
+            ns.Comm.Whisper(name, "ROLE_CHECK")
+            popped = popped + 1
+        else
+            -- No colour escapes here - SendChatMessage mangles the pipe char.
+            QueueWhisper(name, "[RaidLead] Role check: reply to this whisper "
+                .. "with a NUMBER - 1 = Tank, 2 = Heal, 3 = Melee, 4 = Ranged")
+            asked = asked + 1
+        end
+    end
+
+    ActivateListening(onUpdate)
+    ns.P(string.format("|cFF88CCFFAsking %d player(s) missing a role|r (%d popup, %d whisper). "
+        .. "Reading replies; click again to stop.", #missing, popped, asked))
+    return true
+end
+
 function Roles.StartChatRoleCheck(onUpdate)
     if ns.CanBroadcast and not ns.CanBroadcast() then
         ns.P("|cFFFF8800Only the raid leader or an assistant can run a role check.|r")
@@ -318,15 +428,8 @@ function Roles.StartChatRoleCheck(onUpdate)
     -- doesn't get a popup here.
     if ns.Comm then ns.Comm.Send("ROLE_CHECK") end
 
-    roleChatActive   = true
-    roleChatOnUpdate = onUpdate
-    roleChatCount    = 0
-    for _, e in ipairs(ROLE_CHAT_EVENTS) do roleChatFrame:RegisterEvent(e) end
+    ActivateListening(onUpdate)
     ns.P("|cFF88CCFFRole check on.|r Reading chat/whisper replies; click again to stop.")
-
-    C_Timer.After(CHAT_ROLE_DURATION, function()
-        if roleChatActive then Roles.StopChatRoleCheck() end
-    end)
     return true
 end
 
