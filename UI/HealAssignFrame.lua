@@ -104,7 +104,7 @@ local function CreateRow(index)
     row.statusText:SetWidth(60)
     row.statusText:SetJustifyH("LEFT")
 
-    row.targetDD = ns.CreatePlayerDropdown(row, 130, function(playerName)
+    row.targetDD = ns.CreatePlayerDropdown(row, 118, function(playerName)
         if not row.healerName then return end
         if playerName then
             ns.HealAssign.SetConfig(row.healerName, "dedicated", playerName)
@@ -118,10 +118,12 @@ local function CreateRow(index)
 
     row.esLabel = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     row.esLabel:SetPoint("LEFT", row.targetDD, "RIGHT", 6, 0)
+    row.esLabel:SetWidth(20)
+    row.esLabel:SetJustifyH("LEFT")
     row.esLabel:SetText("ES:")
     row.esLabel:SetTextColor(0.55, 0.85, 1)
 
-    row.esDD = ns.CreatePlayerDropdown(row, 105, function(playerName)
+    row.esDD = ns.CreatePlayerDropdown(row, 92, function(playerName)
         if not row.healerName then return end
         ns.HealAssign.SetEarthShield(row.healerName, playerName)
         ns.RefreshHealAssign()
@@ -130,7 +132,12 @@ local function CreateRow(index)
     row.esDD:SetPoint("LEFT", row.esLabel, "RIGHT", 4, 0)
 
     row.noHealBtn = ns.MakeSmallButton(row, "Off", 60, 22)
-    row.noHealBtn:SetPoint("LEFT", row.esDD, "RIGHT", 6, 0)
+    -- Anchored to the row's RIGHT, not to esDD. Two reasons: esDD is hidden
+    -- for non-shamans (a paladin left the button stranded at the far edge),
+    -- and the FauxScrollFrame's scrollbar covers the rightmost ~25px - the
+    -- button used to sit underneath it, so the scrollbar swallowed the
+    -- clicks and "Off" appeared to do nothing.
+    row.noHealBtn:SetPoint("RIGHT", row, "RIGHT", -26, 0)
     row.noHealBtn:SetScript("OnClick", function()
         if ns.HealAssign.IsLocked() then
             ns.LockedNotice()
@@ -359,10 +366,17 @@ rosterHeader:SetHeight(24)
 rosterHeader:SetPoint("TOPLEFT",  rosterContainer, "TOPLEFT",  0, 0)
 rosterHeader:SetPoint("TOPRIGHT", rosterContainer, "TOPRIGHT", 0, 0)
 
+-- Forward declaration: every button below calls this, and roleCheckBtn's
+-- OnClick is defined before the assignment further down.
+local syncRoleButtons
+
 local roleCheckBtn = ns.MakeSmallButton(rosterHeader, "Role Check", 95, 22)
 roleCheckBtn:SetPoint("RIGHT", rosterHeader, "RIGHT", -4, 0)
 roleCheckBtn:SetScript("OnClick", function()
     if ns.Roles and ns.Roles.SendRoleCheck then ns.Roles.SendRoleCheck() end
+    -- SendRoleCheck now also opens the chat/whisper listener, so reflect that
+    -- in the Ask All / Stop label.
+    if syncRoleButtons then syncRoleButtons() end
 end)
 
 -- Quick Poll launcher - leader / assistant only.
@@ -403,7 +417,6 @@ local function missingCount()
     return #ns.Roles.GetMissingRolePlayers()
 end
 
-local syncRoleButtons
 function syncRoleButtons()
     local active = ns.Roles and ns.Roles.IsChatRoleCheckActive
                    and ns.Roles.IsChatRoleCheckActive()

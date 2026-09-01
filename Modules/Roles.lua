@@ -223,11 +223,18 @@ function Roles.SendRoleCheck()
         ns.ShowRoleCheckDialog(nil)  -- nil sender -> generic "Please confirm your role."
     end
 
+    -- Listen for chat / whisper replies too. Players without the addon see
+    -- no popup at all, and even addon users often just whisper "4" instead of
+    -- clicking. Without this the listener stays off and every such reply is
+    -- silently discarded - the player keeps showing as Unknown.
+    if Roles.ActivateListening then Roles.ActivateListening() end
+
     local gt = ns.GetGroupType and ns.GetGroupType() or "solo"
     if gt == "solo" then
         ns.P("|cFF88CCFF[role check]|r solo - opening dialog for you.")
     else
-        ns.P("|cFF88CCFF[role check]|r sent to RaidLead users in the raid.")
+        ns.P("|cFF88CCFF[role check]|r sent to RaidLead users in the raid. "
+            .. "Also reading chat/whisper replies.")
     end
 end
 
@@ -237,7 +244,7 @@ end
 -- and sets each player's role locally, so healer / role assignments work
 -- even when not everyone runs RaidLead.
 ----------------------------------------------------------------------
-local CHAT_ROLE_DURATION = 90   -- safety auto-stop (seconds)
+local CHAT_ROLE_DURATION = 300  -- safety auto-stop (seconds)
 
 local roleChatFrame  = CreateFrame("Frame")
 local roleChatActive = false
@@ -303,7 +310,8 @@ function Roles.IsChatRoleCheckActive() return roleChatActive end
 -- without it, starting a second check would leave the FIRST check's auto-stop
 -- timer running, and it would cut the new one short.
 local roleChatGen = 0
-local function ActivateListening(onUpdate)
+local ActivateListening
+function ActivateListening(onUpdate)
     roleChatActive   = true
     roleChatOnUpdate = onUpdate
     roleChatCount    = 0
@@ -314,6 +322,7 @@ local function ActivateListening(onUpdate)
         if roleChatActive and roleChatGen == gen then Roles.StopChatRoleCheck() end
     end)
 end
+Roles.ActivateListening = ActivateListening
 
 ----------------------------------------------------------------------
 -- Follow-up: ask ONLY the players we still have no role for.

@@ -1,5 +1,12 @@
 # RaidLead Changelog
 
+## v1.9.2
+
+### Fixes
+- **"Off" in the healer assignments did nothing.** The button was anchored to the Earth Shield dropdown, which put it underneath the list's scrollbar - the scrollbar swallowed the clicks, so nothing happened and no error appeared. It also stayed stranded at the far edge for non-shamans (e.g. a paladin), where the Earth Shield fields are hidden. The button now sits at a fixed position on the right of each row, clear of the scrollbar.
+- **Whispered role replies were ignored after a "Role Check".** The Role Check button only sent the in-addon popup and never switched on the chat/whisper listener, so players who simply whispered a number (e.g. `4`) were silently discarded and kept showing as Unknown. All three entry points - Role Check, Ask All and Ask Missing - now read chat and whisper replies the same way.
+- **Role checks time out after 5 minutes instead of 90 seconds.** 90s was too short for players mid-pull; late answers were dropped without a word, which looked exactly like a broken role check. Stop it early any time with the Stop button.
+
 ## v1.9.1
 
 ### New
